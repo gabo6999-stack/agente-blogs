@@ -1,1 +1,1 @@
-worker: python pipeline.py
+web: python pipeline.py
