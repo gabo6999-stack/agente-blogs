@@ -9,6 +9,7 @@ import schedule
 import time
 import threading
 import os
+import json
 import requests
 from datetime import datetime
 
@@ -52,6 +53,30 @@ agent_status = {
     "last_post": None,
     "last_error": None
 }
+
+SCHEDULE_FILE = "schedule_config.json"
+DAY_MAP_ES = {
+    "monday": "Lunes", "tuesday": "Martes", "wednesday": "Miércoles",
+    "thursday": "Jueves", "friday": "Viernes", "saturday": "Sábado", "sunday": "Domingo"
+}
+
+
+def load_schedule_config() -> dict:
+    if os.path.exists(SCHEDULE_FILE):
+        with open(SCHEDULE_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {
+        site_key: {
+            "publish_days": cfg.get("publish_days", ["monday", "tuesday", "thursday", "friday"]),
+            "publish_time": cfg.get("publish_time", "09:00")
+        }
+        for site_key, cfg in SITES.items()
+    }
+
+
+def save_schedule_config(config: dict):
+    with open(SCHEDULE_FILE, "w", encoding="utf-8") as f:
+        json.dump(config, f, ensure_ascii=False, indent=2)
 
 
 def run_pipeline(site_key: str, topic: str = None):
@@ -169,7 +194,28 @@ def dashboard():
         </table>
     </div>"""
 
+    sched_config = load_schedule_config()
     sites_options = "".join([f'<option value="{k}">{k}</option>' for k in SITES.keys()])
+
+    schedule_cards = ""
+    for site_key in SITES.keys():
+        site_sched = sched_config.get(site_key, {})
+        active_days = site_sched.get("publish_days", ["monday", "tuesday", "thursday", "friday"])
+        pub_time = site_sched.get("publish_time", "09:00")
+        days_display = " · ".join(DAY_MAP_ES.get(d, d).capitalize() for d in active_days)
+        schedule_cards += f'<div class="day">{days_display} @ {pub_time}</div>'
+
+    first_site = list(SITES.keys())[0]
+    first_sched = sched_config.get(first_site, {})
+    active_days_first = first_sched.get("publish_days", ["monday", "tuesday", "thursday", "friday"])
+    pub_time_first = first_sched.get("publish_time", "09:00")
+
+    all_days = [("monday","Lunes"),("tuesday","Martes"),("wednesday","Miércoles"),
+                ("thursday","Jueves"),("friday","Viernes"),("saturday","Sábado"),("sunday","Domingo")]
+    day_checkboxes = ""
+    for val, label in all_days:
+        checked = "checked" if val in active_days_first else ""
+        day_checkboxes += f'<label style="display:flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" value="{val}" {checked} style="width:auto;margin:0;"> {label}</label>'
 
     return f"""
     <!DOCTYPE html>
@@ -205,12 +251,20 @@ def dashboard():
 
         <div class="card info">
             <h3>📅 Publicación automática</h3>
-            <div class="schedule">
-                <div class="day">Lunes @ 9:00am</div>
-                <div class="day">Martes @ 9:00am</div>
-                <div class="day">Jueves @ 9:00am</div>
-                <div class="day">Viernes @ 9:00am</div>
+            <div class="schedule">{schedule_cards}</div>
+        </div>
+
+        <div class="card" style="border-left: 4px solid #f59e0b;">
+            <h3>⚙️ Cambiar horario</h3>
+            <select id="sched-site" style="margin-bottom:12px;">{sites_options}</select>
+            <p style="font-size:13px;color:#aaa;margin:4px 0 10px;">Días de publicación:</p>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;">
+                {day_checkboxes}
             </div>
+            <label style="font-size:13px;color:#aaa;">Hora de publicación:</label>
+            <input type="time" id="sched-time" value="{pub_time_first}" style="margin-bottom:10px;">
+            <button onclick="guardarHorario()" style="background:#f59e0b;">💾 Guardar horario</button>
+            <p id="sched-msg" style="margin-top:10px;font-size:13px;"></p>
         </div>
 
         <div class="card">
@@ -224,6 +278,34 @@ def dashboard():
         </div>
 
         <script>
+        async function guardarHorario() {{
+            const site = document.getElementById('sched-site').value;
+            const time = document.getElementById('sched-time').value;
+            const days = Array.from(document.querySelectorAll('input[type=checkbox]:checked')).map(cb => cb.value);
+            const msg = document.getElementById('sched-msg');
+            if (!days.length) {{ msg.textContent = '❌ Selecciona al menos un día'; msg.style.color='#ef4444'; return; }}
+            msg.textContent = '⏳ Guardando...'; msg.style.color = '#f59e0b';
+            try {{
+                const res = await fetch('/schedule', {{
+                    method: 'POST',
+                    headers: {{'Content-Type': 'application/json'}},
+                    body: JSON.stringify({{site_key: site, days, publish_time: time}})
+                }});
+                const data = await res.json();
+                if (data.status === 'updated') {{
+                    msg.textContent = '✅ Horario guardado. Se aplicará desde ahora.';
+                    msg.style.color = '#22c55e';
+                    setTimeout(() => location.reload(), 1500);
+                }} else {{
+                    msg.textContent = '❌ ' + (data.detail || 'Error');
+                    msg.style.color = '#ef4444';
+                }}
+            }} catch(e) {{
+                msg.textContent = '❌ Error de conexión';
+                msg.style.color = '#ef4444';
+            }}
+        }}
+
         async function publicar() {{
             const site = document.getElementById('site').value;
             const topic = document.getElementById('topic').value;
@@ -292,12 +374,39 @@ def history(site: str = None, limit: int = 20):
     return {"history": get_history(site_key=site, limit=limit)}
 
 
+@app.get("/schedule")
+def get_schedule():
+    return load_schedule_config()
+
+
+class ScheduleRequest(BaseModel):
+    site_key: str
+    days: list
+    publish_time: str
+
+
+@app.post("/schedule")
+def update_schedule(req: ScheduleRequest):
+    valid_days = {"monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"}
+    invalid = [d for d in req.days if d not in valid_days]
+    if invalid:
+        raise HTTPException(status_code=400, detail=f"Días inválidos: {invalid}")
+    if not req.days:
+        raise HTTPException(status_code=400, detail="Debes seleccionar al menos un día")
+    if req.site_key not in SITES:
+        raise HTTPException(status_code=404, detail=f"Sitio '{req.site_key}' no encontrado")
+    reschedule(req.site_key, req.days, req.publish_time)
+    return {"status": "updated", "site": req.site_key, "days": req.days, "time": req.publish_time}
+
+
 # ─── SCHEDULER ───────────────────────────────────────────
 
 def schedule_sites():
-    for site_key, site_config in SITES.items():
-        publish_time = site_config.get("publish_time", "09:00")
-        publish_days = site_config.get("publish_days", ["monday", "tuesday", "thursday", "friday"])
+    config = load_schedule_config()
+    for site_key in SITES.keys():
+        site_sched = config.get(site_key, {})
+        publish_time = site_sched.get("publish_time", "09:00")
+        publish_days = site_sched.get("publish_days", ["monday", "tuesday", "thursday", "friday"])
 
         day_map = {
             "monday": schedule.every().monday,
@@ -313,6 +422,15 @@ def schedule_sites():
             if day in day_map:
                 day_map[day].at(publish_time).do(run_pipeline, site_key=site_key)
                 print(f"[Scheduler] {site_key} → {day} @ {publish_time}")
+
+
+def reschedule(site_key: str, days: list, publish_time: str):
+    config = load_schedule_config()
+    config[site_key] = {"publish_days": days, "publish_time": publish_time}
+    save_schedule_config(config)
+    schedule.clear()
+    schedule_sites()
+    print(f"[Scheduler] ✅ Horario actualizado: {days} @ {publish_time}")
 
 
 def run_scheduler():
