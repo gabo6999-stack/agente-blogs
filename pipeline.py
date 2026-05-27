@@ -20,7 +20,7 @@ from pydantic import BaseModel
 from config import SITES
 from tools.trends import pick_topic
 from tools.writer import generate_blog
-from tools.images import get_unsplash_image, upload_image_to_wordpress, generate_dalle_image
+from tools.images import get_unsplash_image, upload_image_to_wordpress
 from tools.wordpress import publish_post, get_wp_headers
 from tools.logger import log_post, get_used_topics, get_history, get_last_post
 
@@ -74,13 +74,9 @@ def run_pipeline(site_key: str, topic: str = None):
         # 2. Generar blog
         blog_data = generate_blog(site_key, topic)
 
-        # 3. Obtener imagen — DALL-E primero, Unsplash como fallback
-        blog_title = blog_data.get("title", topic)
-        image_data = generate_dalle_image(topic, blog_title)
-        if not image_data:
-            print("[Pipeline] DALL-E falló, usando Unsplash como fallback...")
-            unsplash_query = blog_data.get("unsplash_query", topic)
-            image_data = get_unsplash_image(unsplash_query)
+        # 3. Obtener imagen
+        unsplash_query = blog_data.get("unsplash_query", topic)
+        image_data = get_unsplash_image(unsplash_query)
 
         # 4. Subir imagen
         featured_media_id = None

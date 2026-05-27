@@ -1,56 +1,5 @@
 import requests
-from openai import OpenAI
-from config import UNSPLASH_ACCESS_KEY, OPENAI_API_KEY
-
-_openai_client = None
-
-def _get_openai():
-    global _openai_client
-    if _openai_client is None:
-        _openai_client = OpenAI(api_key=OPENAI_API_KEY)
-    return _openai_client
-
-
-def generate_dalle_image(topic: str, title: str) -> dict | None:
-    """
-    Genera una imagen con DALL-E 3 basada en el tema del blog.
-    Retorna dict compatible con upload_image_to_wordpress.
-    """
-    try:
-        prompt = (
-            f"Professional, high-quality lifestyle photograph for a health and sports supplements blog. "
-            f"Topic: {topic}. "
-            f"Clean, modern aesthetic with natural lighting. White or light neutral background. "
-            f"No text, no logos, no watermarks. "
-            f"Style: editorial health magazine photography."
-        )
-
-        response = _get_openai().images.generate(
-            model="dall-e-3",
-            prompt=prompt,
-            size="1792x1024",
-            quality="standard",
-            n=1
-        )
-
-        image_url = response.data[0].url
-        print(f"[Images] ✅ Imagen generada con DALL-E 3 para: {topic}")
-
-        return {
-            "url": image_url,
-            "full_url": image_url,
-            "thumb_url": image_url,
-            "photographer": "dalle-ai-generated",
-            "photographer_url": "",
-            "unsplash_url": "",
-            "alt_text": title,
-            "width": 1792,
-            "height": 1024
-        }
-
-    except Exception as e:
-        print(f"[Images] Error generando imagen con DALL-E: {e}")
-        return None
+from config import UNSPLASH_ACCESS_KEY
 
 
 def get_unsplash_image(query: str) -> dict | None:
