@@ -20,7 +20,7 @@ from tools.trends import pick_topic
 from tools.writer import generate_blog
 from tools.images import get_unsplash_image, upload_image_to_wordpress
 from tools.wordpress import publish_post, get_wp_headers
-from tools.logger import log_post, get_used_topics
+from tools.logger import log_post, get_used_topics, get_history, get_last_post
 
 app = FastAPI()
 
@@ -91,18 +91,19 @@ def run_pipeline(site_key: str, topic: str = None):
 
 @app.get("/", response_class=HTMLResponse)
 def dashboard():
-    last_post = agent_status.get("last_post")
+    last_post = agent_status.get("last_post") or get_last_post()
     last_error = agent_status.get("last_error")
     running = agent_status.get("running")
+    history = get_history(limit=10)
 
     last_post_html = ""
     if last_post:
         last_post_html = f"""
         <div class="card success">
             <h3>✅ Último blog publicado</h3>
-            <p><strong>{last_post['title']}</strong></p>
-            <p>{last_post['date']}</p>
-            <a href="{last_post['url']}" target="_blank">{last_post['url']}</a>
+            <p><strong>{last_post.get('title', last_post.get('topic', ''))}</strong></p>
+            <p>{last_post.get('date', '')[:16].replace('T', ' ')}</p>
+            <a href="{last_post.get('url', '#')}" target="_blank">{last_post.get('url', '')}</a>
         </div>"""
 
     error_html = ""
@@ -110,6 +111,33 @@ def dashboard():
         error_html = f'<div class="card error"><h3>❌ Último error</h3><p>{last_error}</p></div>'
 
     running_html = '<div class="card warning"><h3>⏳ Publicando ahora...</h3></div>' if running else ""
+
+    history_rows = ""
+    for entry in history:
+        status_icon = "✅" if entry.get("success") else "❌"
+        date = entry.get("date", "")[:16].replace("T", " ")
+        title = entry.get("title") or entry.get("topic", "—")
+        url = entry.get("url", "")
+        link = f'<a href="{url}" target="_blank">Ver</a>' if url else "—"
+        error = entry.get("error", "")
+        detail = f'<span style="color:#ef4444;font-size:12px">{error}</span>' if error else link
+        history_rows += f"<tr><td>{status_icon}</td><td>{date}</td><td>{title}</td><td>{detail}</td></tr>"
+
+    history_html = f"""
+    <div class="card info">
+        <h3>📋 Historial de publicaciones</h3>
+        <table style="width:100%;border-collapse:collapse;font-size:14px;">
+            <thead>
+                <tr style="border-bottom:1px solid #444;">
+                    <th style="padding:8px;text-align:left;width:30px"></th>
+                    <th style="padding:8px;text-align:left;">Fecha</th>
+                    <th style="padding:8px;text-align:left;">Título / Tema</th>
+                    <th style="padding:8px;text-align:left;">Link</th>
+                </tr>
+            </thead>
+            <tbody>{history_rows if history_rows else '<tr><td colspan="4" style="padding:12px;color:#666;">Sin publicaciones aún</td></tr>'}</tbody>
+        </table>
+    </div>"""
 
     sites_options = "".join([f'<option value="{k}">{k}</option>' for k in SITES.keys()])
 
@@ -143,6 +171,7 @@ def dashboard():
         {running_html}
         {last_post_html}
         {error_html}
+        {history_html}
 
         <div class="card info">
             <h3>📅 Publicación automática</h3>
@@ -218,13 +247,19 @@ def publish_now(req: PublishRequest):
 
 @app.get("/status")
 def status():
+    last_post = agent_status["last_post"] or get_last_post()
     return {
         "online": True,
         "running": agent_status["running"],
-        "last_post": agent_status["last_post"],
+        "last_post": last_post,
         "last_error": agent_status["last_error"],
         "sites": list(SITES.keys())
     }
+
+
+@app.get("/history")
+def history(site: str = None, limit: int = 20):
+    return {"history": get_history(site_key=site, limit=limit)}
 
 
 # ─── SCHEDULER ───────────────────────────────────────────

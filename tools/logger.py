@@ -46,3 +46,18 @@ def get_used_topics(site_key: str, last_n: int = 20) -> list[str]:
     log = load_log()
     site_logs = [e for e in log if e["site"] == site_key and e["success"]]
     return [e["topic"] for e in site_logs[-last_n:]]
+
+
+def get_history(site_key: str = None, limit: int = 20) -> list:
+    log = load_log()
+    if site_key:
+        log = [e for e in log if e["site"] == site_key]
+    return list(reversed(log[-limit:]))
+
+
+def get_last_post(site_key: str = None) -> dict | None:
+    history = get_history(site_key=site_key, limit=50)
+    for entry in history:
+        if entry.get("success"):
+            return entry
+    return None
