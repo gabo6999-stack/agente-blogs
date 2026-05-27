@@ -8,6 +8,8 @@ Frecuencia: Lunes, Martes, Jueves, Viernes @ 9:00am
 import schedule
 import time
 import threading
+import os
+import requests
 from datetime import datetime
 
 from fastapi import FastAPI, HTTPException
@@ -23,6 +25,26 @@ from tools.wordpress import publish_post, get_wp_headers
 from tools.logger import log_post, get_used_topics, get_history, get_last_post
 
 app = FastAPI()
+
+SEO_AGENT_URL = os.getenv("SEO_AGENT_URL", "https://web-production-3743c.up.railway.app")
+
+
+def notify_seo_agent(post_id: int, title: str, content: str, url: str):
+    try:
+        print(f"[SEO] Enviando blog al agente SEO para optimización...")
+        response = requests.post(
+            f"{SEO_AGENT_URL}/optimize-blog",
+            json={"post_id": post_id, "title": title, "content": content, "url": url},
+            timeout=120
+        )
+        result = response.json()
+        if result.get("success"):
+            print(f"[SEO] ✅ Blog optimizado: {result.get('url', url)}")
+        else:
+            print(f"[SEO] ⚠️ No se pudo optimizar: {result.get('error')}")
+    except Exception as e:
+        print(f"[SEO] ⚠️ Error al contactar agente SEO: {e}")
+
 
 # Estado del agente
 agent_status = {
@@ -75,6 +97,14 @@ def run_pipeline(site_key: str, topic: str = None):
             }
             agent_status["last_error"] = None
             print(f"\n[Pipeline] ✅ Blog publicado: {post.get('link')}")
+
+            # 7. Optimizar con agente SEO
+            notify_seo_agent(
+                post_id=post.get("id"),
+                title=post.get("title", {}).get("rendered", ""),
+                content=blog_data.get("content", ""),
+                url=post.get("link", "")
+            )
         else:
             agent_status["last_error"] = "Post creation failed"
             log_post(site_key, topic, None, success=False, error="Post creation failed")
