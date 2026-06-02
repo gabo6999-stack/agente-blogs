@@ -58,7 +58,7 @@ Responde únicamente con el JSON corregido."""
     print(f"[Writer] Editando post con instrucción: {instruction}")
 
     response = client.messages.create(
-        model="claude-sonnet-4-20250514",
+        model="claude-sonnet-4-5",
         max_tokens=4000,
         system=system_prompt,
         messages=[{"role": "user", "content": user_message}]
@@ -106,7 +106,7 @@ Responde únicamente con el JSON solicitado."""
 
     # Primera llamada — puede usar web_search
     response = client.messages.create(
-        model="claude-sonnet-4-20250514",
+        model="claude-sonnet-4-5",
         max_tokens=4000,
         system=system_prompt,
         tools=[{"type": "web_search_20250305", "name": "web_search"}],
@@ -128,7 +128,7 @@ Responde únicamente con el JSON solicitado."""
         messages.append({"role": "user", "content": tool_results})
 
         response = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-5",
             max_tokens=4000,
             system=system_prompt,
             tools=[{"type": "web_search_20250305", "name": "web_search"}],
