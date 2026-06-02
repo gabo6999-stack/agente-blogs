@@ -97,6 +97,115 @@ def publish_post(site_key: str, blog_data: dict, featured_media_id: int = None) 
         return None
 
 
+def get_post(site_key: str, post_id: int) -> dict | None:
+    """
+    Obtiene un post existente de WordPress por ID.
+    Retorna el post raw o None si falla.
+    """
+    wp_url, headers = get_wp_headers(site_key)
+    try:
+        response = requests.get(
+            f"{wp_url}/wp-json/wp/v2/posts/{post_id}",
+            headers=headers,
+            params={"context": "edit"},
+            timeout=15
+        )
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        print(f"[WP] Error obteniendo post {post_id}: {e}")
+        return None
+
+
+def get_tag_names(site_key: str, tag_ids: list[int]) -> list[str]:
+    """
+    Convierte una lista de IDs de tags a nombres.
+    """
+    if not tag_ids:
+        return []
+    wp_url, headers = get_wp_headers(site_key)
+    try:
+        response = requests.get(
+            f"{wp_url}/wp-json/wp/v2/tags",
+            headers=headers,
+            params={"include": ",".join(map(str, tag_ids)), "per_page": 100},
+            timeout=10
+        )
+        if response.status_code == 200:
+            return [t["name"] for t in response.json()]
+    except Exception as e:
+        print(f"[WP] Error obteniendo nombres de tags: {e}")
+    return []
+
+
+def set_featured_image(site_key: str, post_id: int, featured_media_id: int) -> dict | None:
+    """
+    Actualiza solo la imagen destacada de un post existente.
+    """
+    wp_url, headers = get_wp_headers(site_key)
+    try:
+        response = requests.put(
+            f"{wp_url}/wp-json/wp/v2/posts/{post_id}",
+            headers=headers,
+            json={"featured_media": featured_media_id},
+            timeout=30
+        )
+        response.raise_for_status()
+        post = response.json()
+        print(f"[WP] Imagen actualizada en post: {post['link']}")
+        return post
+    except Exception as e:
+        print(f"[WP] Error actualizando imagen: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            print(f"[WP] Respuesta: {e.response.text[:500]}")
+        return None
+
+
+def update_post(site_key: str, post_id: int, blog_data: dict, featured_media_id: int = None) -> dict | None:
+    """
+    Actualiza un post existente en WordPress con los campos proporcionados.
+    Retorna el post actualizado o None si falla.
+    """
+    wp_url, headers = get_wp_headers(site_key)
+
+    payload = {
+        "title": blog_data["title"],
+        "content": blog_data.get("content", ""),
+        "excerpt": blog_data.get("excerpt", ""),
+        "meta": {
+            "rank_math_title": blog_data.get("rank_math_title", ""),
+            "rank_math_description": blog_data.get("rank_math_description", ""),
+            "rank_math_focus_keyword": blog_data.get("rank_math_focus_keyword", ""),
+        }
+    }
+
+    if featured_media_id:
+        payload["featured_media"] = featured_media_id
+
+    tags = blog_data.get("tags", [])
+    if tags:
+        tag_ids = get_or_create_tags(wp_url, headers, tags)
+        if tag_ids:
+            payload["tags"] = tag_ids
+
+    try:
+        response = requests.put(
+            f"{wp_url}/wp-json/wp/v2/posts/{post_id}",
+            headers=headers,
+            json=payload,
+            timeout=30
+        )
+        response.raise_for_status()
+        post = response.json()
+        print(f"[WP] Post actualizado: {post['link']}")
+        return post
+    except Exception as e:
+        print(f"[WP] Error actualizando post: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            print(f"[WP] Respuesta: {e.response.text[:500]}")
+        return None
+
+
 def get_or_create_tags(wp_url: str, headers: dict, tag_names: list[str]) -> list[int]:
     """
     Obtiene o crea tags en WordPress. Retorna lista de IDs.

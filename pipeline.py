@@ -2,7 +2,7 @@
 Agente de publicación automática de blogs
 Sitio: peptidosysuplementos.mx
 Frecuencia: Lunes, Martes, Jueves, Viernes @ 9:00am
-+ API web para publicación manual
++ API web para publicación manual y edición con IA
 """
 
 import schedule
@@ -20,14 +20,27 @@ from pydantic import BaseModel
 
 from config import SITES
 from tools.trends import pick_topic
-from tools.writer import generate_blog
+from tools.writer import generate_blog, edit_blog
 from tools.images import get_unsplash_image, upload_image_to_wordpress
-from tools.wordpress import publish_post, get_wp_headers
+from tools.wordpress import publish_post, get_wp_headers, get_post, get_tag_names, update_post, set_featured_image
 from tools.logger import log_post, get_used_topics, get_history, get_last_post
 
 app = FastAPI()
 
 SEO_AGENT_URL = os.getenv("SEO_AGENT_URL", "https://web-production-3743c.up.railway.app")
+
+SCHEDULE_FILE = "schedule_config.json"
+DAY_MAP_ES = {
+    "monday": "Lunes", "tuesday": "Martes", "wednesday": "Miércoles",
+    "thursday": "Jueves", "friday": "Viernes", "saturday": "Sábado", "sunday": "Domingo"
+}
+
+# Estado del agente
+agent_status = {
+    "running": False,
+    "last_post": None,
+    "last_error": None
+}
 
 
 def notify_seo_agent(post_id: int, title: str, content: str, url: str):
@@ -45,20 +58,6 @@ def notify_seo_agent(post_id: int, title: str, content: str, url: str):
             print(f"[SEO] ⚠️ No se pudo optimizar: {result.get('error')}")
     except Exception as e:
         print(f"[SEO] ⚠️ Error al contactar agente SEO: {e}")
-
-
-# Estado del agente
-agent_status = {
-    "running": False,
-    "last_post": None,
-    "last_error": None
-}
-
-SCHEDULE_FILE = "schedule_config.json"
-DAY_MAP_ES = {
-    "monday": "Lunes", "tuesday": "Martes", "wednesday": "Miércoles",
-    "thursday": "Jueves", "friday": "Viernes", "saturday": "Sábado", "sunday": "Domingo"
-}
 
 
 def load_schedule_config() -> dict:
@@ -138,6 +137,71 @@ def run_pipeline(site_key: str, topic: str = None):
         print(f"[Pipeline] ❌ Error: {e}")
         agent_status["last_error"] = str(e)
         log_post(site_key, topic if topic else "unknown", None, success=False, error=str(e))
+    finally:
+        agent_status["running"] = False
+
+
+def run_edit_pipeline(site_key: str, post_id: int, instruction: str, update_image: bool = False):
+    """
+    Pipeline de edición: fetch post actual → Claude corrige → actualiza en WP
+    """
+    agent_status["running"] = True
+    print(f"\n{'='*50}")
+    print(f"[Edit Pipeline] Editando post {post_id} en: {site_key}")
+    print(f"[Edit Pipeline] Instrucción: {instruction}")
+    print(f"{'='*50}\n")
+
+    try:
+        # 1. Obtener post actual de WP
+        raw_post = get_post(site_key, post_id)
+        if not raw_post:
+            raise Exception(f"No se encontró el post con ID {post_id}")
+
+        # 2. Normalizar datos del post
+        meta = raw_post.get("meta", {})
+        tag_ids = raw_post.get("tags", [])
+        tag_names = get_tag_names(site_key, tag_ids)
+
+        current_post = {
+            "title": raw_post.get("title", {}).get("raw") or raw_post.get("title", {}).get("rendered", ""),
+            "content": raw_post.get("content", {}).get("raw") or raw_post.get("content", {}).get("rendered", ""),
+            "excerpt": raw_post.get("excerpt", {}).get("raw") or raw_post.get("excerpt", {}).get("rendered", ""),
+            "rank_math_title": meta.get("rank_math_title", ""),
+            "rank_math_description": meta.get("rank_math_description", ""),
+            "rank_math_focus_keyword": meta.get("rank_math_focus_keyword", ""),
+            "tags": tag_names,
+        }
+
+        # 3. Editar con IA
+        updated_blog_data = edit_blog(site_key, current_post, instruction)
+
+        # 4. Buscar nueva imagen si se solicitó
+        featured_media_id = None
+        if update_image:
+            unsplash_query = updated_blog_data.get("unsplash_query", current_post.get("title", ""))
+            image_data = get_unsplash_image(unsplash_query)
+            if image_data:
+                wp_url, headers = get_wp_headers(site_key)
+                featured_media_id = upload_image_to_wordpress(image_data, wp_url, headers)
+                print(f"[Edit Pipeline] Nueva imagen subida: media_id={featured_media_id}")
+
+        # 5. Actualizar en WP
+        post = update_post(site_key, post_id, updated_blog_data, featured_media_id)
+
+        if post:
+            agent_status["last_post"] = {
+                "title": post.get("title", {}).get("rendered", ""),
+                "url": post.get("link", ""),
+                "date": datetime.now().strftime("%Y-%m-%d %H:%M")
+            }
+            agent_status["last_error"] = None
+            print(f"\n[Edit Pipeline] ✅ Post actualizado: {post.get('link')}")
+        else:
+            agent_status["last_error"] = "Post update failed"
+
+    except Exception as e:
+        print(f"[Edit Pipeline] ❌ Error: {e}")
+        agent_status["last_error"] = str(e)
     finally:
         agent_status["running"] = False
 
@@ -238,6 +302,7 @@ def dashboard():
             a {{ color: #818cf8; }}
             .schedule {{ display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }}
             .day {{ background: #2a2a2a; padding: 10px; border-radius: 6px; text-align: center; }}
+            textarea {{ background: #2a2a2a; color: #eee; border: 1px solid #444; padding: 10px; border-radius: 6px; width: 100%; min-height: 80px; box-sizing: border-box; font-family: Arial; resize: vertical; margin: 8px 0; }}
         </style>
     </head>
     <body>
@@ -269,19 +334,34 @@ def dashboard():
 
         <div class="card">
             <h3>⚡ Publicar ahora manualmente</h3>
-            <select id="site">
-                {sites_options}
-            </select>
+            <select id="site">{sites_options}</select>
             <input type="text" id="topic" placeholder="Tema (opcional — dejar vacío para usar tendencias)">
             <button onclick="publicar()">🚀 Publicar Blog Ahora</button>
             <p id="msg" style="margin-top:10px; color: #22c55e;"></p>
+        </div>
+
+        <div class="card" style="border-left: 4px solid #22c55e;">
+            <h3>✏️ Editar blog existente con IA</h3>
+            <select id="edit-site">{sites_options}</select>
+            <div style="display:flex; gap:8px; align-items:center;">
+                <input type="number" id="post-id" placeholder="ID del post en WordPress" style="flex:1; margin:0;">
+                <button onclick="buscarPost()" style="width:auto; padding:10px 16px; margin:0;">🔍 Verificar</button>
+            </div>
+            <p id="post-info" style="font-size:13px; color:#888; margin:6px 0;"></p>
+            <textarea id="instruction" placeholder="Instrucción — ej: 'Mejora la introducción', 'Agrega sección sobre dosis recomendadas', 'Cambia el tono a más formal'"></textarea>
+            <label style="display:flex; align-items:center; gap:8px; margin:8px 0; cursor:pointer;">
+                <input type="checkbox" id="update-image" style="width:auto; margin:0;">
+                Reemplazar imagen (Unsplash)
+            </label>
+            <button onclick="editar()" style="background:#16a34a;">✏️ Editar con IA</button>
+            <p id="edit-msg" style="margin-top:10px; color: #22c55e;"></p>
         </div>
 
         <script>
         async function guardarHorario() {{
             const site = document.getElementById('sched-site').value;
             const time = document.getElementById('sched-time').value;
-            const days = Array.from(document.querySelectorAll('input[type=checkbox]:checked')).map(cb => cb.value);
+            const days = Array.from(document.querySelectorAll('input[type=checkbox]:not(#update-image):checked')).map(cb => cb.value);
             const msg = document.getElementById('sched-msg');
             if (!days.length) {{ msg.textContent = '❌ Selecciona al menos un día'; msg.style.color='#ef4444'; return; }}
             msg.textContent = '⏳ Guardando...'; msg.style.color = '#f59e0b';
@@ -331,6 +411,62 @@ def dashboard():
                 msg.style.color = '#ef4444';
             }}
         }}
+
+        async function buscarPost() {{
+            const site = document.getElementById('edit-site').value;
+            const postId = document.getElementById('post-id').value;
+            const info = document.getElementById('post-info');
+            if (!postId) {{ info.textContent = 'Ingresa un ID de post'; info.style.color = '#ef4444'; return; }}
+            info.textContent = '⏳ Buscando...';
+            info.style.color = '#888';
+            try {{
+                const res = await fetch(`/post/${{site}}/${{postId}}`);
+                const data = await res.json();
+                if (res.ok) {{
+                    info.innerHTML = `✅ <strong>${{data.title}}</strong> — <a href="${{data.url}}" target="_blank">ver post</a>`;
+                    info.style.color = '#22c55e';
+                }} else {{
+                    info.textContent = '❌ ' + (data.detail || 'Post no encontrado');
+                    info.style.color = '#ef4444';
+                }}
+            }} catch(e) {{
+                info.textContent = '❌ Error de conexión';
+                info.style.color = '#ef4444';
+            }}
+        }}
+
+        async function editar() {{
+            const site = document.getElementById('edit-site').value;
+            const postId = document.getElementById('post-id').value;
+            const instruction = document.getElementById('instruction').value;
+            const updateImage = document.getElementById('update-image').checked;
+            const msg = document.getElementById('edit-msg');
+            if (!postId || !instruction.trim()) {{
+                msg.textContent = '❌ ID de post e instrucción son requeridos';
+                msg.style.color = '#ef4444';
+                return;
+            }}
+            msg.textContent = updateImage ? '⏳ Editando con IA y buscando nueva imagen...' : '⏳ Editando con IA... esto tarda 1-2 minutos';
+            msg.style.color = '#f59e0b';
+            try {{
+                const res = await fetch('/edit', {{
+                    method: 'POST',
+                    headers: {{'Content-Type': 'application/json'}},
+                    body: JSON.stringify({{site_key: site, post_id: parseInt(postId), instruction: instruction, update_image: updateImage}})
+                }});
+                const data = await res.json();
+                if (data.status === 'started') {{
+                    msg.textContent = '✅ Edición iniciada — revisa los logs en Railway';
+                    msg.style.color = '#22c55e';
+                }} else {{
+                    msg.textContent = '❌ ' + (data.detail || 'Error');
+                    msg.style.color = '#ef4444';
+                }}
+            }} catch(e) {{
+                msg.textContent = '❌ Error de conexión';
+                msg.style.color = '#ef4444';
+            }}
+        }}
         </script>
     </body>
     </html>
@@ -349,12 +485,89 @@ def publish_now(req: PublishRequest):
     if req.site_key not in SITES:
         raise HTTPException(status_code=404, detail=f"Sitio '{req.site_key}' no encontrado")
 
-    # Correr en hilo separado para no bloquear la respuesta
     thread = threading.Thread(target=run_pipeline, args=(req.site_key, req.topic))
     thread.daemon = True
     thread.start()
 
     return {"status": "started", "site": req.site_key, "topic": req.topic or "automático"}
+
+
+class EditRequest(BaseModel):
+    site_key: str
+    post_id: int
+    instruction: str
+    update_image: bool = False
+
+
+@app.post("/edit")
+def edit_now(req: EditRequest):
+    if agent_status["running"]:
+        raise HTTPException(status_code=409, detail="Ya hay una operación en proceso")
+    if req.site_key not in SITES:
+        raise HTTPException(status_code=404, detail=f"Sitio '{req.site_key}' no encontrado")
+    if not req.instruction.strip():
+        raise HTTPException(status_code=400, detail="La instrucción no puede estar vacía")
+
+    thread = threading.Thread(target=run_edit_pipeline, args=(req.site_key, req.post_id, req.instruction, req.update_image))
+    thread.daemon = True
+    thread.start()
+
+    return {"status": "started", "site": req.site_key, "post_id": req.post_id, "instruction": req.instruction}
+
+
+class ImageRequest(BaseModel):
+    site_key: str
+    post_id: int
+    query: str = None
+
+
+@app.post("/image")
+def update_image(req: ImageRequest):
+    if req.site_key not in SITES:
+        raise HTTPException(status_code=404, detail=f"Sitio '{req.site_key}' no encontrado")
+
+    raw_post = get_post(req.site_key, req.post_id)
+    if not raw_post:
+        raise HTTPException(status_code=404, detail=f"Post {req.post_id} no encontrado en WordPress")
+
+    search_query = req.query or raw_post.get("title", {}).get("rendered", "supplement")
+
+    image_data = get_unsplash_image(search_query)
+    if not image_data:
+        raise HTTPException(status_code=502, detail="No se encontró imagen en Unsplash")
+
+    wp_url, headers = get_wp_headers(req.site_key)
+    media_id = upload_image_to_wordpress(image_data, wp_url, headers)
+    if not media_id:
+        raise HTTPException(status_code=502, detail="Error subiendo imagen a WordPress")
+
+    post = set_featured_image(req.site_key, req.post_id, media_id)
+    if not post:
+        raise HTTPException(status_code=502, detail="Error actualizando imagen en el post")
+
+    return {
+        "status": "ok",
+        "post_id": req.post_id,
+        "media_id": media_id,
+        "url": post.get("link", ""),
+        "query_used": search_query,
+    }
+
+
+@app.get("/post/{site_key}/{post_id}")
+def fetch_post_info(site_key: str, post_id: int):
+    if site_key not in SITES:
+        raise HTTPException(status_code=404, detail=f"Sitio '{site_key}' no encontrado")
+    raw_post = get_post(site_key, post_id)
+    if not raw_post:
+        raise HTTPException(status_code=404, detail=f"Post {post_id} no encontrado en WordPress")
+    return {
+        "id": raw_post.get("id"),
+        "title": raw_post.get("title", {}).get("rendered", ""),
+        "url": raw_post.get("link", ""),
+        "date": raw_post.get("date", ""),
+        "status": raw_post.get("status", ""),
+    }
 
 
 @app.get("/status")
@@ -445,7 +658,6 @@ if __name__ == "__main__":
 
     schedule_sites()
 
-    # Scheduler en hilo separado
     scheduler_thread = threading.Thread(target=run_scheduler)
     scheduler_thread.daemon = True
     scheduler_thread.start()
@@ -453,5 +665,4 @@ if __name__ == "__main__":
     print("⏰ Scheduler activo")
     print("🌐 Dashboard disponible en el URL de Railway\n")
 
-    # Servidor web
     uvicorn.run(app, host="0.0.0.0", port=8000)
