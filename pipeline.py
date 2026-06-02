@@ -22,7 +22,7 @@ from config import SITES
 from tools.trends import pick_topic
 from tools.writer import generate_blog, edit_blog
 from tools.images import get_unsplash_image, upload_image_to_wordpress
-from tools.wordpress import publish_post, get_wp_headers, get_post, get_tag_names, update_post, set_featured_image
+from tools.wordpress import publish_post, get_wp_headers, get_post, get_tag_names, update_post, set_featured_image, get_posts_list
 from tools.logger import log_post, get_used_topics, get_history, get_last_post
 
 app = FastAPI()
@@ -342,12 +342,16 @@ def dashboard():
 
         <div class="card" style="border-left: 4px solid #22c55e;">
             <h3>✏️ Editar blog existente con IA</h3>
-            <select id="edit-site">{sites_options}</select>
-            <div style="display:flex; gap:8px; align-items:center;">
-                <input type="number" id="post-id" placeholder="ID del post en WordPress" style="flex:1; margin:0;">
-                <button onclick="buscarPost()" style="width:auto; padding:10px 16px; margin:0;">🔍 Verificar</button>
+            <select id="edit-site" onchange="resetPostSelector()">{sites_options}</select>
+            <div style="position:relative; margin:8px 0;">
+                <input type="text" id="post-search" placeholder="Busca un blog por nombre..." autocomplete="off"
+                    oninput="filterPosts()" onfocus="openDropdown()" onblur="closeDropdownDelayed()"
+                    style="margin:0; padding-right:40px;">
+                <button onclick="loadPosts()" title="Cargar lista de blogs"
+                    style="position:absolute;right:0;top:0;bottom:0;width:40px;margin:0;padding:0;border-radius:0 6px 6px 0;font-size:18px;">🔄</button>
+                <div id="post-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:#2a2a2a;border:1px solid #555;border-top:none;border-radius:0 0 8px 8px;max-height:220px;overflow-y:auto;z-index:100;"></div>
             </div>
-            <p id="post-info" style="font-size:13px; color:#888; margin:6px 0;"></p>
+            <p id="post-info" style="font-size:13px; color:#888; margin:4px 0 8px 0;"></p>
             <textarea id="instruction" placeholder="Instrucción — ej: 'Mejora la introducción', 'Agrega sección sobre dosis recomendadas', 'Cambia el tono a más formal'"></textarea>
             <label style="display:flex; align-items:center; gap:8px; margin:8px 0; cursor:pointer;">
                 <input type="checkbox" id="update-image" style="width:auto; margin:0;">
@@ -412,37 +416,83 @@ def dashboard():
             }}
         }}
 
-        async function buscarPost() {{
+        let allPosts = [];
+        let selectedPostId = null;
+
+        async function loadPosts() {{
             const site = document.getElementById('edit-site').value;
-            const postId = document.getElementById('post-id').value;
             const info = document.getElementById('post-info');
-            if (!postId) {{ info.textContent = 'Ingresa un ID de post'; info.style.color = '#ef4444'; return; }}
-            info.textContent = '⏳ Buscando...';
+            const search = document.getElementById('post-search');
+            info.textContent = '⏳ Cargando lista de blogs...';
             info.style.color = '#888';
             try {{
-                const res = await fetch(`/post/${{site}}/${{postId}}`);
+                const res = await fetch(`/posts/${{site}}`);
                 const data = await res.json();
-                if (res.ok) {{
-                    info.innerHTML = `✅ <strong>${{data.title}}</strong> — <a href="${{data.url}}" target="_blank">ver post</a>`;
-                    info.style.color = '#22c55e';
-                }} else {{
-                    info.textContent = '❌ ' + (data.detail || 'Post no encontrado');
-                    info.style.color = '#ef4444';
-                }}
+                allPosts = data.posts || [];
+                info.textContent = `${{allPosts.length}} blogs cargados — escribe para filtrar`;
+                info.style.color = '#888';
+                search.focus();
+                filterPosts();
             }} catch(e) {{
-                info.textContent = '❌ Error de conexión';
+                info.textContent = '❌ Error cargando blogs';
                 info.style.color = '#ef4444';
             }}
         }}
 
+        function filterPosts() {{
+            const q = document.getElementById('post-search').value.toLowerCase();
+            const dropdown = document.getElementById('post-dropdown');
+            const filtered = allPosts.filter(p => p.title.toLowerCase().includes(q));
+            if (!filtered.length) {{
+                dropdown.innerHTML = '<div style="padding:10px;color:#666;font-size:13px;">Sin resultados</div>';
+            }} else {{
+                dropdown.innerHTML = filtered.slice(0, 30).map(p =>
+                    `<div onclick="selectPost(${{p.id}}, '${{p.title.replace(/'/g, "&#39;")}}')"
+                        style="padding:10px 14px;cursor:pointer;font-size:14px;border-bottom:1px solid #333;"
+                        onmouseover="this.style.background='#3a3a3a'" onmouseout="this.style.background=''">${{p.title}}</div>`
+                ).join('');
+            }}
+            dropdown.style.display = 'block';
+        }}
+
+        function selectPost(id, title) {{
+            selectedPostId = id;
+            document.getElementById('post-search').value = title;
+            document.getElementById('post-dropdown').style.display = 'none';
+            const info = document.getElementById('post-info');
+            const post = allPosts.find(p => p.id === id);
+            info.innerHTML = `✅ ID: ${{id}} — <a href="${{post?.url || '#'}}" target="_blank">ver post</a>`;
+            info.style.color = '#22c55e';
+        }}
+
+        function openDropdown() {{
+            if (allPosts.length) filterPosts();
+        }}
+
+        function closeDropdownDelayed() {{
+            setTimeout(() => {{ document.getElementById('post-dropdown').style.display = 'none'; }}, 200);
+        }}
+
+        function resetPostSelector() {{
+            allPosts = [];
+            selectedPostId = null;
+            document.getElementById('post-search').value = '';
+            document.getElementById('post-info').textContent = '';
+            document.getElementById('post-dropdown').style.display = 'none';
+        }}
+
         async function editar() {{
             const site = document.getElementById('edit-site').value;
-            const postId = document.getElementById('post-id').value;
             const instruction = document.getElementById('instruction').value;
             const updateImage = document.getElementById('update-image').checked;
             const msg = document.getElementById('edit-msg');
-            if (!postId || !instruction.trim()) {{
-                msg.textContent = '❌ ID de post e instrucción son requeridos';
+            if (!selectedPostId) {{
+                msg.textContent = '❌ Selecciona un blog de la lista primero';
+                msg.style.color = '#ef4444';
+                return;
+            }}
+            if (!instruction.trim()) {{
+                msg.textContent = '❌ Escribe una instrucción de edición';
                 msg.style.color = '#ef4444';
                 return;
             }}
@@ -452,7 +502,7 @@ def dashboard():
                 const res = await fetch('/edit', {{
                     method: 'POST',
                     headers: {{'Content-Type': 'application/json'}},
-                    body: JSON.stringify({{site_key: site, post_id: parseInt(postId), instruction: instruction, update_image: updateImage}})
+                    body: JSON.stringify({{site_key: site, post_id: selectedPostId, instruction: instruction, update_image: updateImage}})
                 }});
                 const data = await res.json();
                 if (data.status === 'started') {{
@@ -552,6 +602,14 @@ def update_image(req: ImageRequest):
         "url": post.get("link", ""),
         "query_used": search_query,
     }
+
+
+@app.get("/posts/{site_key}")
+def list_posts(site_key: str):
+    if site_key not in SITES:
+        raise HTTPException(status_code=404, detail=f"Sitio '{site_key}' no encontrado")
+    posts = get_posts_list(site_key)
+    return {"posts": posts}
 
 
 @app.get("/post/{site_key}/{post_id}")

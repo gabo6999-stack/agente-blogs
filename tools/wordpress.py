@@ -97,6 +97,28 @@ def publish_post(site_key: str, blog_data: dict, featured_media_id: int = None) 
         return None
 
 
+def get_posts_list(site_key: str, per_page: int = 100) -> list[dict]:
+    """
+    Retorna lista de posts publicados: id, title, url.
+    """
+    wp_url, headers = get_wp_headers(site_key)
+    try:
+        response = requests.get(
+            f"{wp_url}/wp-json/wp/v2/posts",
+            headers=headers,
+            params={"per_page": per_page, "orderby": "date", "order": "desc", "status": "publish"},
+            timeout=15
+        )
+        response.raise_for_status()
+        return [
+            {"id": p["id"], "title": p["title"]["rendered"], "url": p["link"]}
+            for p in response.json()
+        ]
+    except Exception as e:
+        print(f"[WP] Error obteniendo lista de posts: {e}")
+        return []
+
+
 def get_post(site_key: str, post_id: int) -> dict | None:
     """
     Obtiene un post existente de WordPress por ID.
