@@ -580,7 +580,8 @@ def update_image(req: ImageRequest):
     if not raw_post:
         raise HTTPException(status_code=404, detail=f"Post {req.post_id} no encontrado en WordPress")
 
-    search_query = req.query or raw_post.get("title", {}).get("rendered", "supplement")
+    site_niche_en = SITES[req.site_key].get("unsplash_fallback", "sports supplement fitness")
+    search_query = req.query or site_niche_en
 
     image_data = get_unsplash_image(search_query)
     if not image_data:

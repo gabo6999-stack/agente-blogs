@@ -21,6 +21,7 @@ SITES = {
         "publish_days": ["monday", "tuesday", "thursday", "friday"],
         "publish_time": "09:00",
         "post_length": 1500,
+        "unsplash_fallback": "peptides supplements sports performance",
     }
 }
 
