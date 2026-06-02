@@ -59,7 +59,7 @@ Responde únicamente con el JSON corregido."""
 
     response = client.messages.create(
         model="claude-sonnet-4-5",
-        max_tokens=4000,
+        max_tokens=8000,
         system=system_prompt,
         messages=[{"role": "user", "content": user_message}]
     )
