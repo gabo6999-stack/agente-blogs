@@ -1,7 +1,29 @@
 import json
 import anthropic
+from json_repair import repair_json
 from config import ANTHROPIC_API_KEY, SITES
 from prompts.system import get_system_prompt
+
+
+def _parse_json(text: str) -> dict:
+    """Extrae y parsea JSON de la respuesta de Claude, con reparación automática."""
+    clean = text.strip()
+    if "```" in clean:
+        parts = clean.split("```")
+        for part in parts[1::2]:
+            candidate = part.lstrip("json").strip()
+            if candidate.startswith("{"):
+                clean = candidate
+                break
+    clean = clean.strip()
+
+    try:
+        return json.loads(clean)
+    except json.JSONDecodeError:
+        repaired = repair_json(clean, return_objects=True)
+        if isinstance(repaired, dict):
+            return repaired
+        raise ValueError(f"No se pudo parsear el JSON: {clean[:200]}")
 
 
 def edit_blog(site_key: str, current_post: dict, instruction: str) -> dict:
@@ -21,6 +43,7 @@ INSTRUCCIONES:
 - Aplica SOLO los cambios indicados por el editor
 - Mantén la estructura HTML existente a menos que se indique lo contrario
 - Conserva toda la información correcta del artículo original
+- NUNCA incluyas etiquetas <img> en el content — las imágenes se manejan por separado
 
 FORMATO DE RESPUESTA:
 Responde ÚNICAMENTE con un JSON válido con esta estructura exacta:
@@ -32,12 +55,14 @@ Responde ÚNICAMENTE con un JSON válido con esta estructura exacta:
   "rank_math_title": "Meta title SEO (60 caracteres máximo)",
   "rank_math_description": "Meta description SEO (160 caracteres máximo)",
   "rank_math_focus_keyword": "keyword principal",
-  "tags": ["tag1", "tag2", "tag3"]
+  "tags": ["tag1", "tag2", "tag3"],
+  "unsplash_query": "2-3 palabras en inglés para buscar imagen en Unsplash"
 }}
 
-IMPORTANTE: El campo "content" debe ser HTML válido con etiquetas <h2>, <h3>, <p>, <ul>, <strong>.
-No incluyas el H1 dentro del content, solo el cuerpo del artículo.
-No agregues texto fuera del JSON."""
+REGLAS DEL JSON:
+- El campo "content" es HTML — escapa TODAS las comillas internas como \\\"
+- No incluyas el H1 dentro del content, solo el cuerpo del artículo
+- No agregues texto fuera del JSON"""
 
     tags_str = ", ".join(current_post.get("tags", [])) or "(ninguno)"
     user_message = f"""Corrige y mejora el siguiente artículo según esta instrucción:
@@ -46,12 +71,14 @@ INSTRUCCIÓN DEL EDITOR: {instruction}
 
 ARTÍCULO ACTUAL:
 Título: {current_post.get('title', '')}
-Contenido: {current_post.get('content', '')}
 Excerpt: {current_post.get('excerpt', '')}
 Meta title: {current_post.get('rank_math_title', '')}
 Meta description: {current_post.get('rank_math_description', '')}
 Focus keyword: {current_post.get('rank_math_focus_keyword', '')}
 Tags: {tags_str}
+
+CONTENIDO ACTUAL:
+{current_post.get('content', '')}
 
 Responde únicamente con el JSON corregido."""
 
@@ -64,21 +91,13 @@ Responde únicamente con el JSON corregido."""
         messages=[{"role": "user", "content": user_message}]
     )
 
-    full_text = ""
-    for block in response.content:
-        if hasattr(block, "text"):
-            full_text += block.text
+    full_text = "".join(block.text for block in response.content if hasattr(block, "text"))
 
     try:
-        clean = full_text.strip()
-        if clean.startswith("```"):
-            clean = clean.split("```")[1]
-            if clean.startswith("json"):
-                clean = clean[4:]
-        blog_data = json.loads(clean.strip())
+        blog_data = _parse_json(full_text)
         print(f"[Writer] Blog editado: {blog_data.get('title', 'Sin título')}")
         return blog_data
-    except json.JSONDecodeError as e:
+    except Exception as e:
         print(f"[Writer] Error parseando JSON: {e}")
         print(f"[Writer] Respuesta cruda: {full_text[:500]}")
         raise
@@ -104,16 +123,14 @@ Responde únicamente con el JSON solicitado."""
 
     messages = [{"role": "user", "content": user_message}]
 
-    # Primera llamada — puede usar web_search
     response = client.messages.create(
         model="claude-sonnet-4-5",
-        max_tokens=4000,
+        max_tokens=8000,
         system=system_prompt,
         tools=[{"type": "web_search_20250305", "name": "web_search"}],
         messages=messages
     )
 
-    # Manejar tool_use loop
     while response.stop_reason == "tool_use":
         tool_results = []
         for block in response.content:
@@ -129,29 +146,19 @@ Responde únicamente con el JSON solicitado."""
 
         response = client.messages.create(
             model="claude-sonnet-4-5",
-            max_tokens=4000,
+            max_tokens=8000,
             system=system_prompt,
             tools=[{"type": "web_search_20250305", "name": "web_search"}],
             messages=messages
         )
 
-    # Extraer texto final
-    full_text = ""
-    for block in response.content:
-        if hasattr(block, "text"):
-            full_text += block.text
+    full_text = "".join(block.text for block in response.content if hasattr(block, "text"))
 
-    # Parsear JSON
     try:
-        clean = full_text.strip()
-        if clean.startswith("```"):
-            clean = clean.split("```")[1]
-            if clean.startswith("json"):
-                clean = clean[4:]
-        blog_data = json.loads(clean.strip())
+        blog_data = _parse_json(full_text)
         print(f"[Writer] Blog generado: {blog_data.get('title', 'Sin título')}")
         return blog_data
-    except json.JSONDecodeError as e:
+    except Exception as e:
         print(f"[Writer] Error parseando JSON: {e}")
         print(f"[Writer] Respuesta cruda: {full_text[:500]}")
         raise
