@@ -29,7 +29,7 @@ app = FastAPI()
 
 SEO_AGENT_URL = os.getenv("SEO_AGENT_URL", "https://web-production-3743c.up.railway.app")
 
-SCHEDULE_FILE = "schedule_config.json"
+SCHEDULE_FILE = os.path.join(os.getenv("DATA_DIR", "."), "schedule_config.json")
 DAY_MAP_ES = {
     "monday": "Lunes", "tuesday": "Martes", "wednesday": "Miércoles",
     "thursday": "Jueves", "friday": "Viernes", "saturday": "Sábado", "sunday": "Domingo"

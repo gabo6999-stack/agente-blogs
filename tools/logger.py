@@ -3,7 +3,8 @@ import os
 from datetime import datetime
 
 
-LOG_FILE = "logs/blog_log.json"
+_DATA_DIR = os.getenv("DATA_DIR", ".")
+LOG_FILE = os.path.join(_DATA_DIR, "logs", "blog_log.json")
 
 
 def load_log() -> list:
