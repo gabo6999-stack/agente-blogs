@@ -15,7 +15,7 @@ def load_log() -> list:
 
 
 def save_log(log: list):
-    os.makedirs("logs", exist_ok=True)
+    os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
     with open(LOG_FILE, "w", encoding="utf-8") as f:
         json.dump(log, f, ensure_ascii=False, indent=2)
 
