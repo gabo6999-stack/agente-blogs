@@ -646,6 +646,25 @@ def history(site: str = None, limit: int = 20):
     return {"history": get_history(site_key=site, limit=limit)}
 
 
+class LogEntryRequest(BaseModel):
+    site_key: str
+    topic: str
+    title: str
+    url: str
+    post_id: int = None
+
+
+@app.post("/log/add")
+def log_add(req: LogEntryRequest):
+    log_post(
+        site_key=req.site_key,
+        topic=req.topic,
+        post={"title": {"rendered": req.title}, "link": req.url, "id": req.post_id},
+        success=True
+    )
+    return {"status": "ok", "added": req.title}
+
+
 @app.get("/schedule")
 def get_schedule():
     return load_schedule_config()
