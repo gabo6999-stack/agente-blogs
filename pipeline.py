@@ -27,8 +27,6 @@ from tools.logger import log_post, get_used_topics, get_history, get_last_post
 
 app = FastAPI()
 
-SEO_AGENT_URL = os.getenv("SEO_AGENT_URL", "https://web-production-3743c.up.railway.app")
-
 SCHEDULE_FILE = os.path.join(os.getenv("DATA_DIR", "."), "schedule_config.json")
 DAY_MAP_ES = {
     "monday": "Lunes", "tuesday": "Martes", "wednesday": "Miércoles",
@@ -43,11 +41,15 @@ agent_status = {
 }
 
 
-def notify_seo_agent(post_id: int, title: str, content: str, url: str):
+def notify_seo_agent(site_key: str, post_id: int, title: str, content: str, url: str):
+    seo_agent_url = SITES[site_key].get("seo_agent_url")
+    if not seo_agent_url:
+        print(f"[SEO] Sitio '{site_key}' no tiene seo_agent_url configurado — saltando optimización")
+        return
     try:
         print(f"[SEO] Enviando blog al agente SEO para optimización...")
         response = requests.post(
-            f"{SEO_AGENT_URL}/optimize-blog",
+            f"{seo_agent_url}/optimize-blog",
             json={"post_id": post_id, "title": title, "content": content, "url": url},
             timeout=120
         )
@@ -124,6 +126,7 @@ def run_pipeline(site_key: str, topic: str = None):
 
             # 7. Optimizar con agente SEO
             notify_seo_agent(
+                site_key=site_key,
                 post_id=post.get("id"),
                 title=post.get("title", {}).get("rendered", ""),
                 content=blog_data.get("content", ""),
