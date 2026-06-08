@@ -28,13 +28,73 @@ def update_author_display_name(site_key: str, display_name: str) -> bool:
         )
         result = r.json()
         if "id" in result:
-            print(f"[WP] ✅ Display name actualizado a '{display_name}' en {site_key}")
+            print(f"[WP] ✅ Display name actualizado en {site_key}")
             return True
         print(f"[WP] ❌ Error: {result}")
         return False
     except Exception as e:
         print(f"[WP] Error actualizando display name: {e}")
         return False
+
+
+def inject_hide_author_css(site_key: str) -> dict:
+    """
+    Inyecta CSS para ocultar completamente el bloque de autor en los posts.
+    Usa el endpoint wp/v2/global-styles (WP 5.9+). Si falla, retorna el CSS
+    para que el usuario lo pegue manualmente en Apariencia → Personalizar → CSS adicional.
+    """
+    HIDE_AUTHOR_CSS = (
+        ".entry-meta .author, .entry-meta .byline, "
+        ".post-meta .author, .post-author-name, "
+        "span.author, .author.vcard, a.author, "
+        ".post-info .author, .jeg_meta_author, "
+        ".meta-author, .author-link { display: none !important; }"
+    )
+    wp_url, headers = get_wp_headers(site_key)
+
+    # Intenta global-styles (WP 5.9+ / Gutenberg)
+    try:
+        themes_r = requests.get(
+            f"{wp_url}/wp-json/wp/v2/global-styles/themes",
+            headers=headers, timeout=10
+        )
+        if themes_r.status_code == 200:
+            data = themes_r.json()
+            gs_id = data.get("id") if isinstance(data, dict) else None
+            if gs_id:
+                patch_r = requests.post(
+                    f"{wp_url}/wp-json/wp/v2/global-styles/{gs_id}",
+                    headers=headers,
+                    json={"settings": {}, "styles": {"css": HIDE_AUTHOR_CSS}},
+                    timeout=10
+                )
+                if "id" in patch_r.json():
+                    return {"method": "global-styles", "success": True}
+    except Exception:
+        pass
+
+    # Intenta crear/actualizar el post de CSS adicional (wp/v2/custom_css)
+    try:
+        css_r = requests.post(
+            f"{wp_url}/wp-json/wp/v2/custom_css",
+            headers=headers,
+            json={"status": "publish", "content": HIDE_AUTHOR_CSS},
+            timeout=10
+        )
+        if css_r.status_code in (200, 201) and "id" in css_r.json():
+            return {"method": "custom_css_post", "success": True}
+    except Exception:
+        pass
+
+    # Fallback: devuelve el CSS para pegar manualmente
+    return {
+        "method": "manual",
+        "success": False,
+        "css_to_paste": HIDE_AUTHOR_CSS,
+        "instructions": (
+            "Pega este CSS en WP Admin → Apariencia → Personalizar → CSS adicional"
+        ),
+    }
 
 
 def get_wp_headers(site_key: str) -> tuple[str, dict]:

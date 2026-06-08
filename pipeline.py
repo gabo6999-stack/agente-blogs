@@ -22,7 +22,7 @@ from config import SITES
 from tools.trends import pick_topic
 from tools.writer import generate_blog, edit_blog
 from tools.images import get_unsplash_image, upload_image_to_wordpress
-from tools.wordpress import publish_post, get_wp_headers, get_post, get_tag_names, update_post, set_featured_image, get_posts_list, update_author_display_name
+from tools.wordpress import publish_post, get_wp_headers, get_post, get_tag_names, update_post, set_featured_image, get_posts_list, update_author_display_name, inject_hide_author_css
 from tools.logger import log_post, get_used_topics, get_history, get_last_post
 
 app = FastAPI()
@@ -699,12 +699,22 @@ def update_schedule(req: ScheduleRequest):
 def fix_author_name():
     results = {}
     for site_key, cfg in SITES.items():
-        author_name = cfg.get("wp_author_name")
-        if not author_name:
-            results[site_key] = "sin wp_author_name configurado"
-            continue
-        ok = update_author_display_name(site_key, author_name)
-        results[site_key] = f"✅ actualizado a '{author_name}'" if ok else "❌ error"
+        site_result = {}
+
+        # 1. Cambiar display_name a espacio (oculta el nombre en posts)
+        ok = update_author_display_name(site_key, cfg.get("wp_author_name", " "))
+        site_result["display_name"] = "✅ limpiado" if ok else "❌ error"
+
+        # 2. Inyectar CSS para ocultar el bloque "Por ..." completo
+        css_result = inject_hide_author_css(site_key)
+        if css_result["success"]:
+            site_result["css"] = f"✅ inyectado via {css_result['method']}"
+        else:
+            site_result["css"] = "manual"
+            site_result["css_to_paste"] = css_result.get("css_to_paste", "")
+            site_result["instructions"] = css_result.get("instructions", "")
+
+        results[site_key] = site_result
     return {"results": results}
 
 
