@@ -24,6 +24,7 @@ SITES = {
         "unsplash_fallback": "peptides supplements sports performance",
         "seo_agent_url": os.getenv("SEO_AGENT_URL", "https://web-production-3743c.up.railway.app"),
         "seo_optimize_path": "/optimize-blog",
+        "wp_author_name": "Equipo PYS",
     },
     "grupoptm": {
         "wp_url": os.getenv("SITE2_WP_URL"),
@@ -44,6 +45,7 @@ SITES = {
         "unsplash_fallback": "telemedicine doctor consultation health",
         "seo_agent_url": os.getenv("SEO_AGENT_URL", "https://web-production-3743c.up.railway.app"),
         "seo_optimize_path": "/optimize-ptm-blog",
+        "wp_author_name": "Equipo PTM",
     },
 }
 

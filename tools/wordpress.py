@@ -3,6 +3,40 @@ from requests.auth import HTTPBasicAuth
 from config import SITES
 
 
+def get_current_user_id(site_key: str) -> int | None:
+    wp_url, headers = get_wp_headers(site_key)
+    try:
+        r = requests.get(f"{wp_url}/wp-json/wp/v2/users/me", headers=headers, timeout=10)
+        return r.json().get("id")
+    except Exception as e:
+        print(f"[WP] Error obteniendo usuario actual: {e}")
+        return None
+
+
+def update_author_display_name(site_key: str, display_name: str) -> bool:
+    wp_url, headers = get_wp_headers(site_key)
+    user_id = get_current_user_id(site_key)
+    if not user_id:
+        print(f"[WP] No se pudo obtener el ID del usuario para {site_key}")
+        return False
+    try:
+        r = requests.post(
+            f"{wp_url}/wp-json/wp/v2/users/{user_id}",
+            headers=headers,
+            json={"name": display_name},
+            timeout=10
+        )
+        result = r.json()
+        if "id" in result:
+            print(f"[WP] ✅ Display name actualizado a '{display_name}' en {site_key}")
+            return True
+        print(f"[WP] ❌ Error: {result}")
+        return False
+    except Exception as e:
+        print(f"[WP] Error actualizando display name: {e}")
+        return False
+
+
 def get_wp_headers(site_key: str) -> tuple[str, dict]:
     """
     Retorna la URL base y headers de autenticación para WordPress.

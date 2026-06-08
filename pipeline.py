@@ -22,7 +22,7 @@ from config import SITES
 from tools.trends import pick_topic
 from tools.writer import generate_blog, edit_blog
 from tools.images import get_unsplash_image, upload_image_to_wordpress
-from tools.wordpress import publish_post, get_wp_headers, get_post, get_tag_names, update_post, set_featured_image, get_posts_list
+from tools.wordpress import publish_post, get_wp_headers, get_post, get_tag_names, update_post, set_featured_image, get_posts_list, update_author_display_name
 from tools.logger import log_post, get_used_topics, get_history, get_last_post
 
 app = FastAPI()
@@ -693,6 +693,19 @@ def update_schedule(req: ScheduleRequest):
         raise HTTPException(status_code=404, detail=f"Sitio '{req.site_key}' no encontrado")
     reschedule(req.site_key, req.days, req.publish_time)
     return {"status": "updated", "site": req.site_key, "days": req.days, "time": req.publish_time}
+
+
+@app.post("/fix-author-name")
+def fix_author_name():
+    results = {}
+    for site_key, cfg in SITES.items():
+        author_name = cfg.get("wp_author_name")
+        if not author_name:
+            results[site_key] = "sin wp_author_name configurado"
+            continue
+        ok = update_author_display_name(site_key, author_name)
+        results[site_key] = f"✅ actualizado a '{author_name}'" if ok else "❌ error"
+    return {"results": results}
 
 
 # ─── SCHEDULER ───────────────────────────────────────────
