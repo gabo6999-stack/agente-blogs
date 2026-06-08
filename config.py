@@ -23,6 +23,7 @@ SITES = {
         "post_length": 1500,
         "unsplash_fallback": "peptides supplements sports performance",
         "seo_agent_url": os.getenv("SEO_AGENT_URL", "https://web-production-3743c.up.railway.app"),
+        "seo_optimize_path": "/optimize-blog",
     },
     "grupoptm": {
         "wp_url": os.getenv("SITE2_WP_URL"),
@@ -41,7 +42,8 @@ SITES = {
         "publish_time": "09:00",
         "post_length": 1500,
         "unsplash_fallback": "telemedicine doctor consultation health",
-        "seo_agent_url": None,  # pendiente: endpoint PTM en ecommerce-agent
+        "seo_agent_url": os.getenv("SEO_AGENT_URL", "https://web-production-3743c.up.railway.app"),
+        "seo_optimize_path": "/optimize-ptm-blog",
     },
 }
 

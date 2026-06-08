@@ -42,14 +42,16 @@ agent_status = {
 
 
 def notify_seo_agent(site_key: str, post_id: int, title: str, content: str, url: str):
-    seo_agent_url = SITES[site_key].get("seo_agent_url")
+    site_cfg = SITES[site_key]
+    seo_agent_url = site_cfg.get("seo_agent_url")
+    seo_optimize_path = site_cfg.get("seo_optimize_path", "/optimize-blog")
     if not seo_agent_url:
         print(f"[SEO] Sitio '{site_key}' no tiene seo_agent_url configurado — saltando optimización")
         return
     try:
-        print(f"[SEO] Enviando blog al agente SEO para optimización...")
+        print(f"[SEO] Enviando blog al agente SEO para optimización ({seo_optimize_path})...")
         response = requests.post(
-            f"{seo_agent_url}/optimize-blog",
+            f"{seo_agent_url}{seo_optimize_path}",
             json={"post_id": post_id, "title": title, "content": content, "url": url},
             timeout=120
         )
