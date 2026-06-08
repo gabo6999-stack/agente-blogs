@@ -121,36 +121,12 @@ Responde únicamente con el JSON solicitado."""
 
     print(f"[Writer] Generando blog sobre: {topic}")
 
-    messages = [{"role": "user", "content": user_message}]
-
     response = client.messages.create(
-        model="claude-sonnet-4-5",
-        max_tokens=8000,
+        model="claude-sonnet-4-6",
+        max_tokens=16000,
         system=system_prompt,
-        tools=[{"type": "web_search_20250305", "name": "web_search"}],
-        messages=messages
+        messages=[{"role": "user", "content": user_message}]
     )
-
-    while response.stop_reason == "tool_use":
-        tool_results = []
-        for block in response.content:
-            if block.type == "tool_use":
-                tool_results.append({
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": "Search completed"
-                })
-
-        messages.append({"role": "assistant", "content": response.content})
-        messages.append({"role": "user", "content": tool_results})
-
-        response = client.messages.create(
-            model="claude-sonnet-4-5",
-            max_tokens=8000,
-            system=system_prompt,
-            tools=[{"type": "web_search_20250305", "name": "web_search"}],
-            messages=messages
-        )
 
     full_text = "".join(block.text for block in response.content if hasattr(block, "text"))
 

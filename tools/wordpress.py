@@ -138,15 +138,28 @@ def get_wp_headers(site_key: str) -> tuple[str, dict]:
     return wp_url, headers
 
 
-def publish_post(site_key: str, blog_data: dict, featured_media_id: int = None) -> dict | None:
+def publish_post(site_key: str, blog_data: dict, featured_media_id: int = None, image_data: dict = None) -> dict | None:
     """
     Publica el post en WordPress con metadatos de Rank Math.
     Retorna el post creado o None si falla.
     """
     wp_url, headers = get_wp_headers(site_key)
 
-    # Agregar atribución de Unsplash al final del contenido si hay imagen
     content = blog_data.get("content", "")
+
+    # Embedder imagen al inicio del contenido para garantizar que se muestre
+    # independientemente de cómo el tema maneje el featured_media
+    if image_data and featured_media_id:
+        img_html = (
+            f'<figure class="wp-block-image size-large aligncenter">'
+            f'<img src="{image_data["url"]}" alt="{image_data.get("alt_text", "")}" '
+            f'width="{image_data.get("width", 1080)}" height="{image_data.get("height", 720)}" />'
+            f'<figcaption>Foto: <a href="{image_data["photographer_url"]}" '
+            f'target="_blank" rel="noopener noreferrer">{image_data["photographer"]}</a> '
+            f'en <a href="{image_data["unsplash_url"]}" target="_blank" rel="noopener noreferrer">Unsplash</a>'
+            f'</figcaption></figure>\n\n'
+        )
+        content = img_html + content
 
     payload = {
         "title": blog_data["title"],

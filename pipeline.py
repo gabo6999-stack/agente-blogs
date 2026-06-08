@@ -113,7 +113,7 @@ def run_pipeline(site_key: str, topic: str = None):
             featured_media_id = upload_image_to_wordpress(image_data, wp_url, headers)
 
         # 5. Publicar post
-        post = publish_post(site_key, blog_data, featured_media_id)
+        post = publish_post(site_key, blog_data, featured_media_id, image_data=image_data)
 
         # 6. Registrar
         if post:
