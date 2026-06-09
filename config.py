@@ -45,7 +45,7 @@ SITES = {
         "unsplash_fallback": "telemedicine doctor consultation health",
         "seo_agent_url": os.getenv("SEO_AGENT_URL", "https://web-production-3743c.up.railway.app"),
         "seo_optimize_path": "/optimize-ptm-blog",
-        "wp_author_name": " ",
+        "wp_author_name": "PTM",
     },
 }
 
