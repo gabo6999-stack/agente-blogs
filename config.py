@@ -24,7 +24,8 @@ SITES = {
         "unsplash_fallback": "peptides supplements sports performance",
         "seo_agent_url": os.getenv("SEO_AGENT_URL", "https://web-production-3743c.up.railway.app"),
         "seo_optimize_path": "/optimize-blog",
-        "wp_author_name": " ",
+        "wp_author_name": " ",
+        "default_categories": ["Blog"],
     },
     "grupoptm": {
         "wp_url": os.getenv("SITE2_WP_URL"),
@@ -46,6 +47,7 @@ SITES = {
         "seo_agent_url": os.getenv("SEO_AGENT_URL", "https://web-production-3743c.up.railway.app"),
         "seo_optimize_path": "/optimize-ptm-blog",
         "wp_author_name": "PTM",
+        "default_categories": ["Blog"],
     },
 }
 

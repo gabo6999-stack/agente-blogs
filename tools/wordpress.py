@@ -185,6 +185,14 @@ def publish_post(site_key: str, blog_data: dict, featured_media_id: int = None, 
         if tag_ids:
             payload["tags"] = tag_ids
 
+    # Agregar categorías — usa default_categories del site config si no vienen en blog_data
+    site_config = SITES[site_key]
+    category_names = blog_data.get("categories") or site_config.get("default_categories", [])
+    if category_names:
+        cat_ids = get_or_create_categories(wp_url, headers, category_names)
+        if cat_ids:
+            payload["categories"] = cat_ids
+
     try:
         response = requests.post(
             f"{wp_url}/wp-json/wp/v2/posts",
@@ -333,6 +341,37 @@ def update_post(site_key: str, post_id: int, blog_data: dict, featured_media_id:
         if hasattr(e, 'response') and e.response is not None:
             print(f"[WP] Respuesta: {e.response.text[:500]}")
         return None
+
+
+def get_or_create_categories(wp_url: str, headers: dict, category_names: list[str]) -> list[int]:
+    """
+    Obtiene o crea categorías en WordPress. Retorna lista de IDs.
+    """
+    category_ids = []
+    for name in category_names:
+        try:
+            search = requests.get(
+                f"{wp_url}/wp-json/wp/v2/categories",
+                headers=headers,
+                params={"search": name, "per_page": 10},
+                timeout=10
+            )
+            results = search.json()
+            match = next((c for c in results if c["name"].lower() == name.lower()), None)
+            if match:
+                category_ids.append(match["id"])
+            else:
+                create = requests.post(
+                    f"{wp_url}/wp-json/wp/v2/categories",
+                    headers=headers,
+                    json={"name": name},
+                    timeout=10
+                )
+                if create.status_code == 201:
+                    category_ids.append(create.json()["id"])
+        except Exception as e:
+            print(f"[WP] Error con categoría '{name}': {e}")
+    return category_ids
 
 
 def get_or_create_tags(wp_url: str, headers: dict, tag_names: list[str]) -> list[int]:
