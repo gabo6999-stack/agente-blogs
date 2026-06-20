@@ -64,6 +64,24 @@ def notify_seo_agent(site_key: str, post_id: int, title: str, content: str, url:
         print(f"[SEO] ⚠️ Error al contactar agente SEO: {e}")
 
 
+def notify_nexus(action: str, detail: str = None, url: str = None):
+    """Reporta una actividad a NEXUS (Centro de Comando). Opcional: solo corre si hay NEXUS_URL y NEXUS_KEY."""
+    nexus_url = os.getenv("NEXUS_URL")
+    nexus_key = os.getenv("NEXUS_KEY")
+    if not nexus_url or not nexus_key:
+        return
+    try:
+        requests.post(
+            f"{nexus_url}/api/ingest",
+            json={"agent": "Agente Blogs", "action": action, "detail": detail, "url": url},
+            headers={"x-nexus-key": nexus_key},
+            timeout=15,
+        )
+        print(f"[NEXUS] ✅ Actividad reportada: {action}")
+    except Exception as e:
+        print(f"[NEXUS] ⚠️ No se pudo reportar a NEXUS: {e}")
+
+
 def load_schedule_config() -> dict:
     if os.path.exists(SCHEDULE_FILE):
         with open(SCHEDULE_FILE, "r", encoding="utf-8") as f:
@@ -126,7 +144,14 @@ def run_pipeline(site_key: str, topic: str = None):
             agent_status["last_error"] = None
             print(f"\n[Pipeline] ✅ Blog publicado: {post.get('link')}")
 
-            # 7. Optimizar con agente SEO
+            # 7. Reportar a NEXUS (Centro de Comando)
+            notify_nexus(
+                action="Publicó un blog",
+                detail=post.get("title", {}).get("rendered", "") or topic,
+                url=post.get("link", ""),
+            )
+
+            # 8. Optimizar con agente SEO
             notify_seo_agent(
                 site_key=site_key,
                 post_id=post.get("id"),
@@ -142,6 +167,7 @@ def run_pipeline(site_key: str, topic: str = None):
         print(f"[Pipeline] ❌ Error: {e}")
         agent_status["last_error"] = str(e)
         log_post(site_key, topic if topic else "unknown", None, success=False, error=str(e))
+        notify_nexus(action="Error al publicar un blog", detail=str(e)[:180])
     finally:
         agent_status["running"] = False
 
