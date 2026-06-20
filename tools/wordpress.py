@@ -147,19 +147,9 @@ def publish_post(site_key: str, blog_data: dict, featured_media_id: int = None, 
 
     content = blog_data.get("content", "")
 
-    # Embedder imagen al inicio del contenido para garantizar que se muestre
-    # independientemente de cómo el tema maneje el featured_media
-    if image_data and featured_media_id:
-        img_html = (
-            f'<figure class="wp-block-image size-large aligncenter">'
-            f'<img src="{image_data["url"]}" alt="{image_data.get("alt_text", "")}" '
-            f'width="{image_data.get("width", 1080)}" height="{image_data.get("height", 720)}" />'
-            f'<figcaption>Foto: <a href="{image_data["photographer_url"]}" '
-            f'target="_blank" rel="noopener noreferrer">{image_data["photographer"]}</a> '
-            f'en <a href="{image_data["unsplash_url"]}" target="_blank" rel="noopener noreferrer">Unsplash</a>'
-            f'</figcaption></figure>\n\n'
-        )
-        content = img_html + content
+    # La imagen se asigna SOLO como imagen destacada (featured_media); ya no se
+    # incrusta dentro del contenido, para evitar la foto grande con crédito de
+    # Unsplash justo antes del texto. El tema maneja la imagen destacada.
 
     payload = {
         "title": blog_data["title"],
