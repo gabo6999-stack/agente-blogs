@@ -23,6 +23,7 @@ from tools.trends import pick_topic
 from tools.writer import generate_blog, edit_blog
 from tools.images import get_unsplash_image, upload_image_to_wordpress
 from tools.wordpress import publish_post, get_wp_headers, get_post, get_tag_names, update_post, set_featured_image, get_posts_list, update_author_display_name, inject_hide_author_css
+from tools.arcade import publish_post as arcade_publish_post
 from tools.logger import log_post, get_used_topics, get_history, get_last_post
 
 app = FastAPI()
@@ -120,18 +121,22 @@ def run_pipeline(site_key: str, topic: str = None):
         # 2. Generar blog
         blog_data = generate_blog(site_key, topic)
 
-        # 3. Obtener imagen
-        unsplash_query = blog_data.get("unsplash_query", topic)
-        image_data = get_unsplash_image(unsplash_query)
+        platform = SITES[site_key].get("platform", "wordpress")
 
-        # 4. Subir imagen
+        # 3-4. Imagen de portada (solo WordPress; Arcade aún no maneja portada)
         featured_media_id = None
-        if image_data:
-            wp_url, headers = get_wp_headers(site_key)
-            featured_media_id = upload_image_to_wordpress(image_data, wp_url, headers)
+        if platform == "wordpress":
+            unsplash_query = blog_data.get("unsplash_query", topic)
+            image_data = get_unsplash_image(unsplash_query)
+            if image_data:
+                wp_url, headers = get_wp_headers(site_key)
+                featured_media_id = upload_image_to_wordpress(image_data, wp_url, headers)
 
-        # 5. Publicar post
-        post = publish_post(site_key, blog_data, featured_media_id, image_data=image_data)
+        # 5. Publicar post (Arcade o WordPress según la plataforma del sitio)
+        if platform == "arcade":
+            post = arcade_publish_post(site_key, blog_data)
+        else:
+            post = publish_post(site_key, blog_data, featured_media_id, image_data=image_data)
 
         # 6. Registrar
         if post:
@@ -151,7 +156,7 @@ def run_pipeline(site_key: str, topic: str = None):
                 url=post.get("link", ""),
             )
 
-            # 8. Optimizar con agente SEO
+            # 8. Optimizar con agente SEO (config-driven: se salta si el sitio no tiene seo_agent_url, ej. Arcade)
             notify_seo_agent(
                 site_key=site_key,
                 post_id=post.get("id"),

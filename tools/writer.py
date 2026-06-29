@@ -2,7 +2,7 @@ import json
 import anthropic
 from json_repair import repair_json
 from config import ANTHROPIC_API_KEY, SITES
-from prompts.system import get_system_prompt
+from prompts.system import get_system_prompt, get_arcade_system_prompt
 
 
 def _parse_json(text: str) -> dict:
@@ -111,7 +111,10 @@ def generate_blog(site_key: str, topic: str) -> dict:
     site = SITES[site_key]
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
-    system_prompt = get_system_prompt(site["niche"], site["post_length"])
+    if site.get("platform") == "arcade":
+        system_prompt = get_arcade_system_prompt(site["niche"], site["post_length"])
+    else:
+        system_prompt = get_system_prompt(site["niche"], site["post_length"])
 
     user_message = f"""Escribe un artículo de blog completo y optimizado para SEO sobre: "{topic}"
 

@@ -49,6 +49,24 @@ SITES = {
         "wp_author_name": "PTM",
         "default_categories": ["Blog"],
     },
+    "arcademotors": {
+        "platform": "arcade",                                   # NO es WordPress: postea al endpoint propio
+        "arcade_url": os.getenv("ARCADE_URL", "https://arcademotorsmx.com/api/blog-publish.php"),
+        "arcade_api_key": os.getenv("ARCADE_API_KEY"),
+        "niche": "compra y venta de autos usados y seminuevos en México",
+        "language": "es",
+        "keywords_seed": [
+            "autos usados", "autos seminuevos", "comprar auto", "vender auto",
+            "precio de autos", "trámites vehiculares", "cambio de propietario",
+            "factura de auto", "tenencia", "verificación vehicular", "REPUVE",
+            "financiamiento de autos", "inspección pre-compra", "kilometraje",
+            "autos en México", "consejos para vender un auto", "evitar estafas al comprar auto",
+        ],
+        "publish_days": ["monday", "wednesday", "friday"],
+        "publish_time": "10:00",
+        "post_length": 1200,
+        "unsplash_fallback": "used car mexico",
+    },
 }
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
