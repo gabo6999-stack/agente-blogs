@@ -1,8 +1,10 @@
 import json
 import anthropic
+from datetime import datetime
 from json_repair import repair_json
 from config import ANTHROPIC_API_KEY, SITES
-from prompts.system import get_system_prompt, get_arcade_system_prompt
+from prompts.system import get_system_prompt, get_arcade_system_prompt, get_arcade_review_system_prompt
+from tools.arcade import list_guides as arcade_list_guides
 
 
 def _parse_json(text: str) -> dict:
@@ -103,22 +105,62 @@ Responde únicamente con el JSON corregido."""
         raise
 
 
+def _review_blog_arcade(client, site: dict, blog_data: dict, existing_guides, year: int) -> dict:
+    """Segunda pasada (editor SEO): pule el borrador de Arcade antes de publicar.
+    Si el review falla o devuelve algo incompleto, conserva el borrador original."""
+    try:
+        review_system = get_arcade_review_system_prompt(
+            site["niche"], site["post_length"], existing_guides, year
+        )
+        user = "BORRADOR A PULIR (JSON):\n\n" + json.dumps(blog_data, ensure_ascii=False)
+        print("[Writer] Puliendo con editor SEO (review)...")
+        resp = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=16000,
+            system=review_system,
+            messages=[{"role": "user", "content": user}],
+        )
+        text = "".join(b.text for b in resp.content if hasattr(b, "text"))
+        polished = _parse_json(text)
+        if polished.get("content") and polished.get("title"):
+            polished.setdefault("slug", blog_data.get("slug", ""))
+            print(f"[Writer] ✅ Guía pulida: {polished.get('title')}")
+            return polished
+        print("[Writer] Review incompleto; se conserva el borrador.")
+    except Exception as e:
+        print(f"[Writer] Review falló ({e}); se conserva el borrador.")
+    return blog_data
+
+
 def generate_blog(site_key: str, topic: str) -> dict:
     """
-    Usa Claude con web_search para investigar y escribir el blog completo.
+    Usa Claude para investigar y escribir el blog completo.
+    Para Arcade: inyecta las guías existentes (cross-links + no-repetir) y hace un
+    segundo paso de review (editor SEO) antes de devolver.
     Retorna diccionario con título, contenido, SEO metadata, etc.
     """
     site = SITES[site_key]
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    is_arcade = site.get("platform") == "arcade"
+    year = datetime.now().year
+    existing_guides = arcade_list_guides(site_key) if is_arcade else None
 
-    if site.get("platform") == "arcade":
-        system_prompt = get_arcade_system_prompt(site["niche"], site["post_length"])
+    if is_arcade:
+        system_prompt = get_arcade_system_prompt(site["niche"], site["post_length"], existing_guides, year)
+        titulos = "; ".join(g.get("titulo", "") for g in (existing_guides or [])) or "(ninguna aún)"
+        user_message = f"""Escribe una guía completa y optimizada para SEO sobre: "{topic}"
+
+AÑO ACTUAL: {year} (inclúyelo en el título).
+GUÍAS QUE YA EXISTEN (NO las repitas; enlaza a las relevantes): {titulos}
+
+Si "{topic}" ya está cubierto, escribe sobre un ángulo NUEVO y distinto relacionado con \
+{site['niche']}. Incluye cross-links a las guías existentes y CTA internos (publicar/buscar).
+Responde únicamente con el JSON solicitado."""
     else:
         system_prompt = get_system_prompt(site["niche"], site["post_length"])
+        user_message = f"""Escribe un artículo de blog completo y optimizado para SEO sobre: "{topic}"
 
-    user_message = f"""Escribe un artículo de blog completo y optimizado para SEO sobre: "{topic}"
-
-Investiga con web_search para incluir información actualizada, estudios recientes y datos precisos.
+Investiga para incluir información actualizada, estudios recientes y datos precisos.
 El artículo debe ser útil para personas interesadas en {site['niche']}.
 Responde únicamente con el JSON solicitado."""
 
@@ -136,8 +178,12 @@ Responde únicamente con el JSON solicitado."""
     try:
         blog_data = _parse_json(full_text)
         print(f"[Writer] Blog generado: {blog_data.get('title', 'Sin título')}")
-        return blog_data
     except Exception as e:
         print(f"[Writer] Error parseando JSON: {e}")
         print(f"[Writer] Respuesta cruda: {full_text[:500]}")
         raise
+
+    if is_arcade:
+        blog_data = _review_blog_arcade(client, site, blog_data, existing_guides, year)
+
+    return blog_data

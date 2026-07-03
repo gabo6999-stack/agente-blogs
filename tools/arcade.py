@@ -6,6 +6,24 @@ import requests
 from config import SITES
 
 
+def list_guides(site_key: str) -> list[dict]:
+    """Devuelve las guías ya publicadas en Arcade [{slug, titulo, resumen}].
+    Sirve para NO repetir temas y para armar cross-links reales.
+    Si falla, devuelve [] (el pipeline sigue sin cross-links)."""
+    site = SITES[site_key]
+    list_url = site.get("arcade_list_url")
+    if not list_url:
+        return []
+    try:
+        r = requests.get(list_url, timeout=20)
+        r.raise_for_status()
+        data = r.json()
+        return data.get("guias", []) if data.get("ok") else []
+    except Exception as e:
+        print(f"[Arcade] No se pudo obtener la lista de guías: {e}")
+        return []
+
+
 def publish_post(site_key: str, blog_data: dict, featured_media_id=None) -> dict | None:
     """Publica un post en Arcade Motors MX. Devuelve un dict con forma compatible
     con la respuesta de WordPress (id, link, title) para que el pipeline lo registre igual."""

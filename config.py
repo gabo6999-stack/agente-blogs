@@ -64,8 +64,9 @@ SITES = {
         ],
         "publish_days": ["monday", "wednesday", "friday"],
         "publish_time": "10:00",
-        "post_length": 1200,
+        "post_length": 1500,
         "unsplash_fallback": "used car mexico",
+        "arcade_list_url": os.getenv("ARCADE_LIST_URL", "https://arcademotorsmx.com/api/blog-list.php"),
     },
 }
 
