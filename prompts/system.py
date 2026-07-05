@@ -168,7 +168,7 @@ confianza (E-E-A-T) demostrando experiencia real: ejemplos concretos, pros y con
 NADA de lenguaje médico, científico ni de laboratorio.
 
 INSTRUCCIONES DE CONTENIDO:
-- Longitud objetivo: {word_count} palabras (MÍNIMO 1100; no entregues artículos flacos ni de relleno).
+- Longitud: MÍNIMO {word_count} palabras REALES de cuerpo (sin contar HTML). Un artículo por debajo de {word_count} palabras se rechaza; desarrolla cada sección con ejemplos concretos, comparativas y datos. Nada de relleno ni paja: aporta valor real.
 - Idioma: español neutro para México y Ecuador. Tono profesional pero cercano, sin jerga innecesaria; \
 cuando uses un término técnico (ej. "Core Web Vitals", "SEO on-page"), explícalo en una frase.
 - Enfócate en el "por qué le conviene a mi negocio", no solo en el "cómo técnico".
