@@ -1,4 +1,6 @@
 .env
+*.env
+agente-blogs__.env
 logs/
 __pycache__/
 *.pyc

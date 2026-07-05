@@ -3,7 +3,7 @@ import anthropic
 from datetime import datetime
 from json_repair import repair_json
 from config import ANTHROPIC_API_KEY, SITES
-from prompts.system import get_system_prompt, get_arcade_system_prompt, get_arcade_review_system_prompt
+from prompts.system import get_system_prompt, get_arcade_system_prompt, get_arcade_review_system_prompt, get_agency_system_prompt
 from tools.arcade import list_guides as arcade_list_guides
 
 
@@ -155,6 +155,14 @@ GUÍAS QUE YA EXISTEN (NO las repitas; enlaza a las relevantes): {titulos}
 
 Si "{topic}" ya está cubierto, escribe sobre un ángulo NUEVO y distinto relacionado con \
 {site['niche']}. Incluye cross-links a las guías existentes y CTA internos (publicar/buscar).
+Responde únicamente con el JSON solicitado."""
+    elif site.get("content_style") == "agency":
+        system_prompt = get_agency_system_prompt(site["niche"], site["post_length"])
+        user_message = f"""Escribe un artículo de blog completo y optimizado para SEO sobre: "{topic}"
+
+Enfócalo en el dueño de un negocio/PyME (no en un técnico): explica el "por qué le conviene".
+Investiga para incluir datos actualizados y ejemplos reales, con fuentes de autoridad web/marketing.
+El artículo debe ser útil para personas interesadas en {site['niche']}. Cierra con un CTA claro a la agencia.
 Responde únicamente con el JSON solicitado."""
     else:
         system_prompt = get_system_prompt(site["niche"], site["post_length"])

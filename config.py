@@ -68,6 +68,32 @@ SITES = {
         "unsplash_fallback": "used car mexico",
         "arcade_list_url": os.getenv("ARCADE_LIST_URL", "https://arcademotorsmx.com/api/blog-list.php"),
     },
+    "nodarishub": {
+        "wp_url": os.getenv("SITE3_WP_URL"),
+        "wp_user": os.getenv("SITE3_WP_USER"),
+        "wp_password": os.getenv("SITE3_WP_PASSWORD"),
+        "content_style": "agency",                              # usa get_agency_system_prompt (nicho NO médico)
+        "seo_agent_url": os.getenv("SEO_AGENT_URL", "https://web-production-3743c.up.railway.app"),
+        "seo_optimize_path": "/optimize-nodarishub-blog",
+        "niche": "diseño de páginas web a código, SEO y desarrollo de software a la medida para PyMEs en México y Ecuador",
+        "language": "es",
+        "keywords_seed": [
+            "diseño web para PyME", "página web para negocio", "página web a la medida",
+            "página web a código vs plantilla", "SEO para PyMEs", "posicionamiento web en Google",
+            "cómo aparecer en Google", "Core Web Vitals", "velocidad de carga web",
+            "software a la medida para empresas", "automatización de procesos",
+            "tienda en línea para PyME", "e-commerce para negocio", "landing page que convierte",
+            "rediseño de página web", "Google Search Console", "analítica web GA4",
+            "marketing digital para PyMEs", "página web profesional", "dominio y hosting para negocio",
+            "cuánto cuesta una página web", "WordPress vs desarrollo a medida",
+        ],
+        "publish_days": ["monday", "wednesday", "friday"],
+        "publish_time": "09:00",
+        "post_length": 1400,
+        "unsplash_fallback": "web design development software office",
+        "wp_author_name": "Nodaris Hub",
+        "default_categories": ["Blog"],
+    },
 }
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
