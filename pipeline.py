@@ -101,13 +101,19 @@ def save_schedule_config(config: dict):
         json.dump(config, f, ensure_ascii=False, indent=2)
 
 
-def run_pipeline(site_key: str, topic: str = None):
+def run_pipeline(site_key: str, topic: str = None, country: str = None):
     """
     Pipeline completo: tendencias → escritura → imágenes → publicación
+
+    country: para sitios binacionales (nodarishub, sirve MX+EC), fija el país
+    del tema ("ec" | "mx"). None = combina ambos (Ecuador primero). Ver la nota
+    de estrategia "nodarishub SEO — Estrategia binacional".
+    TODO(subcarpetas): cuando el sitio migre a /ec/ y /mx/, usar `country`
+    también para elegir la subcarpeta de publicación en publish_post.
     """
     agent_status["running"] = True
     print(f"\n{'='*50}")
-    print(f"[Pipeline] Iniciando para: {site_key}")
+    print(f"[Pipeline] Iniciando para: {site_key}" + (f" (país: {country})" if country else ""))
     print(f"[Pipeline] Hora: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"{'='*50}\n")
 
@@ -115,7 +121,7 @@ def run_pipeline(site_key: str, topic: str = None):
         # 1. Seleccionar tema
         if not topic:
             used_topics = get_used_topics(site_key)
-            topic = pick_topic(site_key, used_topics)
+            topic = pick_topic(site_key, used_topics, country=country)
         print(f"[Pipeline] Tema seleccionado: {topic}")
 
         # 2. Generar blog
@@ -585,6 +591,7 @@ def dashboard():
 class PublishRequest(BaseModel):
     site_key: str
     topic: str = None
+    country: str = None  # sitios binacionales (nodarishub): "ec" | "mx"
 
 
 @app.post("/publish")
@@ -594,11 +601,12 @@ def publish_now(req: PublishRequest):
     if req.site_key not in SITES:
         raise HTTPException(status_code=404, detail=f"Sitio '{req.site_key}' no encontrado")
 
-    thread = threading.Thread(target=run_pipeline, args=(req.site_key, req.topic))
+    thread = threading.Thread(target=run_pipeline, args=(req.site_key, req.topic, req.country))
     thread.daemon = True
     thread.start()
 
-    return {"status": "started", "site": req.site_key, "topic": req.topic or "automático"}
+    return {"status": "started", "site": req.site_key, "topic": req.topic or "automático",
+            "country": req.country or "auto"}
 
 
 class EditRequest(BaseModel):
