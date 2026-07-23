@@ -203,9 +203,10 @@ Si "{topic}" ya está cubierto, escribe sobre un ángulo NUEVO y distinto relaci
 {site['niche']}. Incluye cross-links a las guías existentes y CTA internos (publicar/buscar).
 Responde únicamente con el JSON solicitado."""
     elif site.get("content_style") == "agency":
-        system_prompt = get_agency_system_prompt(site["niche"], site["post_length"])
+        system_prompt = get_agency_system_prompt(site["niche"], site["post_length"], year)
         user_message = f"""Escribe un artículo de blog completo y optimizado para SEO sobre: "{topic}"
 
+AÑO ACTUAL: {year}. Si incluyes un año por frescura/SEO (título o texto), usa {year}, nunca uno pasado. Solo conserva años reales al citar datos, informes o versiones concretas.
 Enfócalo en el dueño de un negocio/PyME (no en un técnico): explica el "por qué le conviene".
 Investiga para incluir datos actualizados y ejemplos reales, con fuentes de autoridad web/marketing.
 El artículo debe ser útil para personas interesadas en {site['niche']}. Cierra con un CTA claro a la agencia.
