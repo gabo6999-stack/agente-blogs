@@ -1,4 +1,6 @@
-def get_system_prompt(niche: str, word_count: int) -> str:
+def get_system_prompt(niche: str, word_count: int, year: int = None) -> str:
+    from datetime import datetime
+    year = year or datetime.now().year
     return f"""Eres un experto redactor de contenido SEO y divulgación científica especializado en {niche}.
 
 Tu tarea es escribir artículos de blog completos, profundos y optimizados para SEO en español mexicano.
@@ -9,6 +11,11 @@ INSTRUCCIONES DE CONTENIDO:
 - Tono: profesional pero accesible, científico pero entendible para el público general
 - Incluye datos concretos, dosis, porcentajes y evidencia de estudios reales
 - Usa terminología científica correcta y explícala cuando sea necesario
+
+AÑO ACTUAL Y FECHAS ({year}) — MUY IMPORTANTE:
+- El año en curso es {year}. Si incluyes un año por frescura o SEO (en el título, la introducción o el cuerpo), usa SIEMPRE {year}. NUNCA uses un año pasado (2024, 2025, etc.) como si fuera el año vigente.
+- Si el título lleva año, debe ser {year} (ej. "... en {year}" o "Guía {year}").
+- EXCEPCIÓN, no falsees fechas de hechos: cuando cites un estudio, ensayo clínico, aprobación regulatoria, guía o evento real ocurrido en un año concreto, CONSERVA su año real (es un dato histórico verificable) y no lo cambies a {year}. Tampoco alteres años que formen parte de una URL.
 
 ESTRUCTURA OBLIGATORIA DEL ARTÍCULO:
 1. Introducción (2-3 párrafos) — engancha al lector, plantea el problema y la solución

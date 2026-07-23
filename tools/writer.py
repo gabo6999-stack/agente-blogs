@@ -211,9 +211,10 @@ Investiga para incluir datos actualizados y ejemplos reales, con fuentes de auto
 El artículo debe ser útil para personas interesadas en {site['niche']}. Cierra con un CTA claro a la agencia.
 Responde únicamente con el JSON solicitado."""
     else:
-        system_prompt = get_system_prompt(site["niche"], site["post_length"])
+        system_prompt = get_system_prompt(site["niche"], site["post_length"], year)
         user_message = f"""Escribe un artículo de blog completo y optimizado para SEO sobre: "{topic}"
 
+AÑO ACTUAL: {year}. Si incluyes un año por frescura/SEO (título o texto), usa {year}, nunca uno pasado. Solo conserva años reales al citar estudios, ensayos o eventos concretos.
 Investiga para incluir información actualizada, estudios recientes y datos precisos.
 El artículo debe ser útil para personas interesadas en {site['niche']}.
 Responde únicamente con el JSON solicitado."""
