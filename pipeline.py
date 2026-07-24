@@ -29,10 +29,46 @@ from tools.logger import log_post, get_used_topics, get_history, get_last_post
 app = FastAPI()
 
 SCHEDULE_FILE = os.path.join(os.getenv("DATA_DIR", "."), "schedule_config.json")
+TOPIC_QUEUE_FILE = os.path.join(os.getenv("DATA_DIR", "."), "topic_queue.json")
 DAY_MAP_ES = {
     "monday": "Lunes", "tuesday": "Martes", "wednesday": "Miércoles",
     "thursday": "Jueves", "friday": "Viernes", "saturday": "Sábado", "sunday": "Domingo"
 }
+
+# ─── COLA DE TEMAS PRIORIZADOS ───────────────────────────
+# Cola FIFO por sitio: si hay temas encolados, la corrida programada los consume
+# EN ORDEN antes de caer al pick_topic automático (DataForSEO/pytrends).
+# Persistida en el volumen (/data) para sobrevivir redeploys.
+_queue_lock = threading.Lock()
+
+
+def load_topic_queue() -> dict:
+    if os.path.exists(TOPIC_QUEUE_FILE):
+        try:
+            with open(TOPIC_QUEUE_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"[Queue] ⚠️ Error leyendo cola ({e}) — se usa cola vacía")
+    return {}
+
+
+def save_topic_queue(queue: dict):
+    with open(TOPIC_QUEUE_FILE, "w", encoding="utf-8") as f:
+        json.dump(queue, f, ensure_ascii=False, indent=2)
+
+
+def pop_queued_topic(site_key: str):
+    """Saca (FIFO) el siguiente tema encolado del sitio; None si la cola está vacía."""
+    with _queue_lock:
+        queue = load_topic_queue()
+        site_q = queue.get(site_key) or []
+        if not site_q:
+            return None
+        topic = site_q.pop(0)
+        queue[site_key] = site_q
+        save_topic_queue(queue)
+        print(f"[Queue] Tema tomado de la cola ({len(site_q)} restantes): {str(topic)[:90]}")
+        return topic
 
 # Estado del agente
 agent_status = {
@@ -118,7 +154,9 @@ def run_pipeline(site_key: str, topic: str = None, country: str = None):
     print(f"{'='*50}\n")
 
     try:
-        # 1. Seleccionar tema
+        # 1. Seleccionar tema: explícito > cola priorizada > pick_topic automático
+        if not topic:
+            topic = pop_queued_topic(site_key)
         if not topic:
             used_topics = get_used_topics(site_key)
             topic = pick_topic(site_key, used_topics, country=country)
@@ -730,6 +768,30 @@ def log_add(req: LogEntryRequest):
         success=True
     )
     return {"status": "ok", "added": req.title}
+
+
+@app.get("/topic-queue")
+def get_topic_queue():
+    """Cola de temas priorizados por sitio (FIFO: el primero se publica en la siguiente corrida)."""
+    return load_topic_queue()
+
+
+class TopicQueueRequest(BaseModel):
+    site_key: str
+    topics: list  # lista de strings, en orden de prioridad (reemplaza la cola del sitio)
+
+
+@app.post("/topic-queue")
+def set_topic_queue(req: TopicQueueRequest):
+    """Reemplaza la cola de temas del sitio con la lista dada (en orden de prioridad)."""
+    if req.site_key not in SITES:
+        raise HTTPException(status_code=404, detail=f"Sitio '{req.site_key}' no encontrado")
+    topics = [str(t).strip() for t in req.topics if str(t).strip()]
+    with _queue_lock:
+        queue = load_topic_queue()
+        queue[req.site_key] = topics
+        save_topic_queue(queue)
+    return {"status": "updated", "site": req.site_key, "queued": len(topics), "topics": topics}
 
 
 @app.get("/schedule")
