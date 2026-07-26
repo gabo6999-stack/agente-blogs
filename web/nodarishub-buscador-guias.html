@@ -1,0 +1,300 @@
+<!-- ============================================================
+     Nodaris Hub · Buscador de guías (fetch en vivo a la REST API de WordPress)
+     Pega TODO este bloque en un bloque "HTML personalizado" de la página
+     del blog, arriba del listado de posts.
+     - Se autoactualiza: lee /wp-json/wp/v2/posts al cargar.
+     - Estilos scopeados en #ndh-guias (no chocan con el tema).
+     - Detecta solo/claro-oscuro automáticamente según el fondo real de la página.
+     - Filtro instantáneo, sin acentos ni mayúsculas, con tags clicables.
+     ============================================================ -->
+<div id="ndh-guias">
+  <style>
+  #ndh-guias{
+    /* Tokens base = asumen fondo CLARO (default). La detección JS añade
+       la clase .pg-dark si el fondo real es oscuro, que sobreescribe abajo. */
+    --pg-accent:#0a9e96; --pg-accent-ink:#067169; --pg-mark:rgba(10,158,150,.16);
+    --pg-ink:#12211f; --pg-muted:#5f7370; --pg-faint:#93a6a3;
+    --pg-onbg:var(--pg-ink); --pg-onbg-muted:var(--pg-muted); --pg-onbg-teal:var(--pg-accent-ink);
+    --pg-surface:#fff; --pg-surface-2:#f3f7f6; --pg-border:#e2ecea; --pg-border-strong:#cddbd8;
+    --pg-ring:rgba(10,158,150,.32);
+    --pg-shadow:0 1px 2px rgba(18,33,31,.05),0 10px 26px rgba(18,33,31,.07);
+    --pg-shadow-hover:0 3px 10px rgba(18,33,31,.08),0 18px 40px rgba(10,158,150,.16);
+    --pg-mono:ui-monospace,"Cascadia Code","SF Mono",Menlo,Consolas,monospace;
+    font-family:inherit; color:var(--pg-onbg); -webkit-font-smoothing:antialiased;
+    box-sizing:border-box; max-width:1140px; margin:0 auto; padding:20px 16px;
+  }
+  #ndh-guias.pg-dark{
+    --pg-onbg:#e9f2f1; --pg-onbg-muted:#9db2b0; --pg-onbg-teal:#5fdccf;
+  }
+  #ndh-guias *{box-sizing:border-box}
+
+  #ndh-guias .pg-head{margin:0 0 20px}
+  #ndh-guias .pg-eyebrow{font-family:var(--pg-mono);text-transform:uppercase;
+    letter-spacing:.14em;font-size:.7rem;color:var(--pg-onbg-teal);margin:0 0 8px;font-weight:700}
+  #ndh-guias .pg-eyebrow b{font-variant-numeric:tabular-nums}
+  #ndh-guias .pg-title{font-size:clamp(1.5rem,1.1rem+1.7vw,2.1rem);line-height:1.1;
+    letter-spacing:-.02em;font-weight:800;margin:0 0 16px;text-wrap:balance}
+  #ndh-guias .pg-bar{display:flex;align-items:center;gap:11px;background:var(--pg-surface);
+    border:1.5px solid var(--pg-border-strong);border-radius:13px;padding:0 14px;
+    box-shadow:var(--pg-shadow);transition:border-color .15s,box-shadow .15s;max-width:620px}
+  #ndh-guias .pg-bar:focus-within{border-color:var(--pg-accent);box-shadow:0 0 0 4px var(--pg-ring)}
+  #ndh-guias .pg-bar svg{flex:none;width:19px;height:19px;color:var(--pg-faint)}
+  #ndh-guias .pg-bar:focus-within svg{color:var(--pg-accent)}
+  #ndh-guias .pg-input{flex:1;border:0;background:none;outline:none;color:var(--pg-ink)!important;
+    -webkit-text-fill-color:var(--pg-ink)!important;caret-color:var(--pg-accent);
+    font-family:inherit;font-size:1.05rem;padding:14px 0}
+  #ndh-guias .pg-input::placeholder{color:var(--pg-faint)}
+  #ndh-guias .pg-input::-webkit-search-cancel-button{display:none}
+  #ndh-guias .pg-clear{flex:none;border:0!important;background:var(--pg-surface-2)!important;
+    color:var(--pg-muted)!important;width:24px!important;height:24px!important;min-height:0!important;
+    border-radius:50%!important;cursor:pointer;font-size:1rem!important;line-height:1!important;
+    padding:0!important;margin:0!important;display:grid!important;place-items:center!important;
+    box-shadow:none!important;text-transform:none!important;transition:background .15s,color .15s}
+  #ndh-guias .pg-clear:hover{background:var(--pg-accent)!important;color:#fff!important}
+  #ndh-guias .pg-hint{color:var(--pg-onbg-muted);font-size:.8rem;margin:11px 0 0}
+  #ndh-guias .pg-hint kbd{font-family:var(--pg-mono);background:var(--pg-surface-2);
+    border:1px solid var(--pg-border);border-radius:5px;padding:1px 6px;font-size:.74rem;color:var(--pg-muted)}
+
+  #ndh-guias .pg-count{font-family:var(--pg-mono);font-size:.76rem;color:var(--pg-onbg-muted);
+    text-transform:uppercase;letter-spacing:.1em;margin:22px 0 16px;font-variant-numeric:tabular-nums}
+  #ndh-guias .pg-count b{color:var(--pg-onbg)}
+  #ndh-guias .pg-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(266px,1fr));gap:20px}
+
+  #ndh-guias .pg-card{background:var(--pg-surface);border:1px solid var(--pg-border);
+    border-radius:15px;overflow:hidden;display:flex;flex-direction:column;
+    box-shadow:var(--pg-shadow);transition:transform .18s,box-shadow .18s,border-color .18s;cursor:pointer}
+  #ndh-guias .pg-card:hover{transform:translateY(-4px);box-shadow:var(--pg-shadow-hover);border-color:var(--pg-accent)}
+  #ndh-guias .pg-thumb{width:100%;aspect-ratio:16/10;object-fit:cover;display:block;background:var(--pg-surface-2)}
+  #ndh-guias .pg-thumb--ph{display:grid;place-items:center;
+    background:radial-gradient(120% 120% at 20% 10%,var(--pg-accent) 0%,transparent 55%),var(--pg-surface-2)}
+  #ndh-guias .pg-thumb--ph span{font-family:var(--pg-mono);font-weight:700;font-size:1.35rem;color:#fff;opacity:.92}
+  #ndh-guias .pg-body{padding:14px 16px 6px;display:flex;flex-direction:column;gap:9px;flex:1}
+  #ndh-guias .pg-tags{display:flex;flex-wrap:wrap;gap:6px}
+  #ndh-guias .pg-tag{font-family:var(--pg-mono)!important;font-size:.66rem!important;font-weight:600!important;
+    color:var(--pg-accent-ink)!important;background:var(--pg-mark)!important;border:0!important;
+    border-radius:6px!important;padding:3px 8px!important;margin:0!important;cursor:pointer;
+    line-height:1.5!important;letter-spacing:.02em!important;text-transform:uppercase!important;
+    min-height:0!important;height:auto!important;width:auto!important;box-shadow:none!important;
+    text-decoration:none!important;transition:background .14s,color .14s;white-space:nowrap}
+  #ndh-guias .pg-tag:hover{background:var(--pg-accent)!important;color:#fff!important}
+  #ndh-guias .pg-cardtitle{font-size:1.01rem;line-height:1.25;letter-spacing:-.01em;
+    font-weight:700;margin:0;text-wrap:balance;color:var(--pg-ink)}
+  #ndh-guias .pg-cardtitle a{color:inherit;text-decoration:none;outline:none}
+  #ndh-guias .pg-cardtitle a:focus-visible{text-decoration:underline;text-decoration-color:var(--pg-accent)}
+  #ndh-guias .pg-ex{font-size:.85rem;color:var(--pg-muted);margin:0 0 4px;
+    display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+  #ndh-guias .pg-foot{display:flex;align-items:center;justify-content:space-between;padding:10px 16px 15px;margin-top:auto}
+  #ndh-guias .pg-foot time{font-family:var(--pg-mono);font-size:.71rem;color:var(--pg-faint);font-variant-numeric:tabular-nums}
+  #ndh-guias .pg-go{font-size:.77rem;font-weight:700;color:var(--pg-accent);opacity:0;transform:translateX(-4px);transition:opacity .18s,transform .18s}
+  #ndh-guias .pg-card:hover .pg-go{opacity:1;transform:none}
+  #ndh-guias mark{background:var(--pg-mark);color:inherit;border-radius:3px;padding:0 1px;
+    font-weight:700;box-shadow:inset 0 -2px 0 var(--pg-accent)}
+
+  #ndh-guias .pg-state{text-align:center;padding:54px 20px;color:var(--pg-onbg-muted)}
+  #ndh-guias .pg-state svg{width:36px;height:36px;color:var(--pg-faint);margin-bottom:12px}
+  #ndh-guias .pg-state strong{color:var(--pg-onbg)}
+  #ndh-guias .pg-link{border:0!important;background:none!important;color:var(--pg-accent)!important;
+    font-weight:700;cursor:pointer;font-size:1rem!important;font-family:inherit;padding:0!important;
+    margin-left:4px;box-shadow:none!important;min-height:0!important;text-transform:none!important;text-decoration:underline}
+
+  #ndh-guias .pg-skel{background:var(--pg-surface);border:1px solid var(--pg-border);
+    border-radius:15px;overflow:hidden;height:290px}
+  #ndh-guias .pg-skel .pg-sk{background:linear-gradient(100deg,var(--pg-surface-2) 30%,#eef4f3 50%,var(--pg-surface-2) 70%);
+    background-size:200% 100%;animation:pg-shim 1.2s infinite}
+  #ndh-guias .pg-skel .pg-sk1{height:60%}
+  #ndh-guias .pg-skel .pg-sk2{height:13px;margin:16px 16px 0;border-radius:4px}
+  #ndh-guias .pg-skel .pg-sk3{height:13px;margin:10px 16px 0;width:70%;border-radius:4px}
+  @keyframes pg-shim{to{background-position:-200% 0}}
+  #ndh-guias .pg-card{animation:pg-fade .3s ease both}
+  @keyframes pg-fade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  @media (prefers-reduced-motion:reduce){
+    #ndh-guias .pg-card,#ndh-guias .pg-go,#ndh-guias .pg-sk{animation:none!important;transition:none!important}
+  }
+  </style>
+
+  <div class="pg-head">
+    <p class="pg-eyebrow">Blog · <b class="pg-total">—</b> guías</p>
+    <h2 class="pg-title">Encuentra una guía</h2>
+    <div class="pg-bar">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.2-3.2"></path></svg>
+      <input class="pg-input" type="search" autocomplete="off" spellcheck="false" placeholder="Escribe un tema: SEO, página web, WordPress…" aria-label="Buscar guías">
+      <button class="pg-clear" hidden aria-label="Limpiar búsqueda">&times;</button>
+    </div>
+    <p class="pg-hint">Filtra al instante mientras escribes · toca un tag para saltar a ese tema · atajo <kbd>/</kbd></p>
+  </div>
+
+  <p class="pg-count" aria-live="polite"></p>
+  <div class="pg-grid" aria-live="polite"></div>
+  <div class="pg-empty" hidden></div>
+
+  <script>
+  (function(){
+    var ROOT=document.getElementById('ndh-guias');
+    if(!ROOT||ROOT.dataset.init) return; ROOT.dataset.init='1';
+
+    // --- Auto claro/oscuro: mide el fondo real detrás del widget y ajusta tokens ---
+    function isDarkBackground(el){
+      while(el && el.nodeType===1){
+        var bg=getComputedStyle(el).backgroundColor;
+        var m=bg.match(/rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?\)/);
+        if(m){
+          var a=m[4]===undefined?1:parseFloat(m[4]);
+          if(a>0.05){
+            var r=+m[1],g=+m[2],b=+m[3];
+            return (0.299*r+0.587*g+0.114*b)/255 < 0.5;
+          }
+        }
+        el=el.parentElement;
+      }
+      return false;
+    }
+    if(isDarkBackground(ROOT.parentElement)) ROOT.classList.add('pg-dark');
+
+    var grid=ROOT.querySelector('.pg-grid'), input=ROOT.querySelector('.pg-input'),
+        clearBtn=ROOT.querySelector('.pg-clear'), countEl=ROOT.querySelector('.pg-count'),
+        emptyEl=ROOT.querySelector('.pg-empty'), totalEl=ROOT.querySelector('.pg-total');
+    var POSTS=[];
+    var API=(location.origin||'')+'/wp-json/wp/v2/posts';
+
+    // --- Diccionario de sinónimos (agencia digital: web/SEO/software) ---
+    // Si un post menciona CUALQUIER término de un grupo, se le añaden los demás
+    // a su índice de búsqueda. Edita/añade grupos libremente
+    // (todo en minúsculas y SIN acentos, que es como se indexa).
+    var SYN=[
+      ['seo','posicionamiento web','posicionamiento en google','aparecer en google'],
+      ['pagina web','sitio web','website','paginas web'],
+      ['tienda en linea','ecommerce','e-commerce','tienda online'],
+      ['diseno web','pagina web a la medida','desarrollo web'],
+      ['wordpress','wp'],
+      ['software a la medida','desarrollo a medida','desarrollo de software','a codigo'],
+      ['landing page','pagina de aterrizaje'],
+      ['analitica web','google analytics','ga4'],
+      ['marketing digital','mercadeo digital'],
+      ['hosting','alojamiento web'],
+      ['dominio','nombre de dominio'],
+      ['core web vitals','velocidad de carga','velocidad web'],
+      ['pyme','pequena y mediana empresa','negocio']
+    ];
+    function expandSyn(base){
+      var add=[];
+      for(var i=0;i<SYN.length;i++){var g=SYN[i];
+        for(var j=0;j<g.length;j++){ if(base.indexOf(g[j])>=0){add=add.concat(g);break;} }
+      }
+      return add.length?base+' '+add.join(' '):base;
+    }
+
+    function foldChar(c){var n=c.normalize('NFD');return (n[0]||c).toLowerCase();}
+    function fold(s){return Array.from(s).map(foldChar).join('');}
+    function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+    function decodeEnt(s){var t=document.createElement('textarea');t.innerHTML=s;return t.value;}
+    function stripClean(html){var d=document.createElement('div');d.innerHTML=html;
+      var t=(d.textContent||'').replace(/\[(?:…|…|\.\.\.)\]/g,'').replace(/\s+/g,' ').trim();return t.slice(0,200);}
+
+    function hl(text,terms){
+      var chars=Array.from(text), folded=chars.map(foldChar).join(''),
+          mk=new Array(chars.length).fill(false), any=false;
+      for(var j=0;j<terms.length;j++){var t=terms[j];if(!t)continue;var i=folded.indexOf(t);
+        while(i>=0){any=true;for(var k=i;k<i+t.length;k++)mk[k]=true;i=folded.indexOf(t,i+t.length);}}
+      if(!any)return esc(text);
+      var out='',open=false;
+      for(var m=0;m<chars.length;m++){
+        if(mk[m]&&!open){out+='<mark>';open=true;} if(!mk[m]&&open){out+='</mark>';open=false;}
+        out+=esc(chars[m]);
+      }
+      return out+(open?'</mark>':'');
+    }
+    function normalize(p){
+      var emb=p._embedded||{}, media=(emb['wp:featuredmedia']||[])[0], img=null;
+      if(media&&media.media_details&&media.media_details.sizes){
+        var s=media.media_details.sizes;
+        img=((s.medium||s.medium_large||s.large||s.full||{}).source_url)||media.source_url||null;
+      }else if(media&&media.source_url){img=media.source_url;}
+      var cats=[],tags=[];
+      (emb['wp:term']||[]).forEach(function(g){(g||[]).forEach(function(t){
+        if(t.taxonomy==='category')cats.push(t.name);
+        else if(t.taxonomy==='post_tag')tags.push(t.name);
+      });});
+      return {title:decodeEnt(p.title.rendered), url:p.link, date:(p.date||'').slice(0,10),
+              excerpt:stripClean(p.excerpt&&p.excerpt.rendered||''), img:img, cats:cats, tags:tags};
+    }
+    function card(p,terms){
+      var img=p.img?'<img class="pg-thumb" src="'+esc(p.img)+'" alt="" loading="lazy">'
+                   :'<div class="pg-thumb pg-thumb--ph"><span>NDH</span></div>';
+      var tags=(p.tags||[]).slice(0,3).map(function(t){return '<button class="pg-tag" data-tag="'+esc(t)+'">'+esc(t)+'</button>';}).join('');
+      return '<article class="pg-card" data-url="'+esc(p.url)+'">'+img+
+        '<div class="pg-body"><div class="pg-tags">'+tags+'</div>'+
+        '<h3 class="pg-cardtitle"><a href="'+esc(p.url)+'" target="_blank" rel="noopener">'+hl(p.title,terms)+'</a></h3>'+
+        '<p class="pg-ex">'+hl(p.excerpt,terms)+'</p></div>'+
+        '<div class="pg-foot"><time>'+esc(p.date)+'</time><span class="pg-go">Leer &rarr;</span></div></article>';
+    }
+    function apply(){
+      var raw=input.value.trim(), terms=fold(raw).split(/\s+/).filter(Boolean);
+      var matched=POSTS.filter(function(p){return !terms.length||terms.every(function(t){return p._h.indexOf(t)>=0;});});
+      grid.innerHTML=matched.map(function(p){return card(p,terms);}).join('');
+      clearBtn.hidden=!raw;
+      if(matched.length===0){
+        emptyEl.hidden=false;
+        emptyEl.className='pg-state';
+        emptyEl.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.2-3.2"></path></svg><p>Ninguna guía coincide con <strong>&laquo;'+esc(raw)+'&raquo;</strong>.<button class="pg-link pg-reset">Ver todas</button></p>';
+        countEl.innerHTML='<b>0</b> resultados';
+      }else{
+        emptyEl.hidden=true;
+        countEl.innerHTML=raw?'<b>'+matched.length+'</b> de '+POSTS.length+' guías'
+                             :'Mostrando las <b>'+POSTS.length+'</b> guías';
+      }
+    }
+    function showSkeleton(){
+      totalEl.textContent='—';
+      var sk='<div class="pg-skel pg-card"><div class="pg-sk pg-sk1"></div><div class="pg-sk pg-sk2"></div><div class="pg-sk pg-sk3"></div></div>';
+      grid.innerHTML=new Array(8).fill(sk).join(''); countEl.textContent='Cargando guías…';
+    }
+    function showError(){
+      grid.innerHTML=''; emptyEl.hidden=false; emptyEl.className='pg-state';
+      emptyEl.innerHTML='<p>No se pudieron cargar las guías en este momento.<button class="pg-link pg-retry">Reintentar</button></p>';
+      countEl.textContent='';
+    }
+    function fetchAll(){
+      var all=[], page=1;
+      function next(){
+        return fetch(API+'?_embed=1&per_page=100&page='+page,{credentials:'same-origin'}).then(function(r){
+          if(!r.ok) throw new Error('HTTP '+r.status);
+          var total=parseInt(r.headers.get('X-WP-TotalPages')||'1',10);
+          return r.json().then(function(batch){
+            all=all.concat(batch);
+            if(page<total){page++;return next();}
+            return all;
+          });
+        });
+      }
+      return next();
+    }
+    function load(){
+      showSkeleton();
+      fetchAll().then(function(raw){
+        POSTS=raw.map(normalize);
+        POSTS.forEach(function(p){p._h=expandSyn(fold([p.title,p.excerpt,(p.tags||[]).join(' '),(p.cats||[]).join(' ')].join(' ')));});
+        totalEl.textContent=POSTS.length;
+        apply();
+      }).catch(function(e){console.error('[NDH guías]',e);showError();});
+    }
+
+    grid.addEventListener('click',function(e){
+      var tag=e.target.closest('.pg-tag');
+      if(tag){e.preventDefault();input.value=tag.getAttribute('data-tag');apply();input.focus();return;}
+      if(e.target.closest('a'))return;
+      var c=e.target.closest('.pg-card'); if(c&&c.dataset.url)window.open(c.dataset.url,'_blank','noopener');
+    });
+    emptyEl.addEventListener('click',function(e){
+      if(e.target.classList.contains('pg-reset')){input.value='';apply();input.focus();}
+      if(e.target.classList.contains('pg-retry')){load();}
+    });
+    input.addEventListener('input',apply);
+    clearBtn.addEventListener('click',function(){input.value='';apply();input.focus();});
+    document.addEventListener('keydown',function(e){
+      if(e.key==='/'&&document.activeElement!==input){e.preventDefault();input.focus();}
+      else if(e.key==='Escape'&&document.activeElement===input&&input.value){input.value='';apply();}
+    });
+    load();
+  })();
+  </script>
+</div>
