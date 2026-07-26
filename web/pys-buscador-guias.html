@@ -40,10 +40,12 @@
     font-family:inherit;font-size:1.05rem;padding:14px 0}
   #pys-guias .pg-input::placeholder{color:var(--pg-faint)}
   #pys-guias .pg-input::-webkit-search-cancel-button{display:none}
-  #pys-guias .pg-clear{flex:none;border:0;background:var(--pg-surface-2);color:var(--pg-muted);
-    width:25px;height:25px;border-radius:50%;cursor:pointer;font-size:1.05rem;line-height:1;
-    display:grid;place-items:center;transition:background .15s,color .15s}
-  #pys-guias .pg-clear:hover{background:var(--pg-accent);color:#fff}
+  #pys-guias .pg-clear{flex:none;border:0!important;background:var(--pg-surface-2)!important;
+    color:var(--pg-muted)!important;width:24px!important;height:24px!important;min-height:0!important;
+    border-radius:50%!important;cursor:pointer;font-size:1rem!important;line-height:1!important;
+    padding:0!important;margin:0!important;display:grid!important;place-items:center!important;
+    box-shadow:none!important;text-transform:none!important;transition:background .15s,color .15s}
+  #pys-guias .pg-clear:hover{background:var(--pg-accent)!important;color:#fff!important}
   #pys-guias .pg-hint{color:var(--pg-onbg-muted);font-size:.8rem;margin:11px 0 0}
   #pys-guias .pg-hint kbd{font-family:var(--pg-mono);background:var(--pg-surface-2);
     border:1px solid var(--pg-border);border-radius:5px;padding:1px 6px;font-size:.74rem;color:var(--pg-muted)}
@@ -63,10 +65,13 @@
   #pys-guias .pg-thumb--ph span{font-family:var(--pg-mono);font-weight:700;font-size:1.35rem;color:#fff;opacity:.92}
   #pys-guias .pg-body{padding:14px 16px 6px;display:flex;flex-direction:column;gap:9px;flex:1}
   #pys-guias .pg-tags{display:flex;flex-wrap:wrap;gap:6px}
-  #pys-guias .pg-tag{font-family:var(--pg-mono);font-size:.67rem;color:var(--pg-accent-ink);
-    background:var(--pg-mark);border:0;border-radius:6px;padding:3px 8px;cursor:pointer;
-    transition:background .14s,color .14s;white-space:nowrap}
-  #pys-guias .pg-tag:hover{background:var(--pg-accent);color:#fff}
+  #pys-guias .pg-tag{font-family:var(--pg-mono)!important;font-size:.66rem!important;font-weight:600!important;
+    color:var(--pg-accent-ink)!important;background:var(--pg-mark)!important;border:0!important;
+    border-radius:6px!important;padding:3px 8px!important;margin:0!important;cursor:pointer;
+    line-height:1.5!important;letter-spacing:.02em!important;text-transform:uppercase!important;
+    min-height:0!important;height:auto!important;width:auto!important;box-shadow:none!important;
+    text-decoration:none!important;transition:background .14s,color .14s;white-space:nowrap}
+  #pys-guias .pg-tag:hover{background:var(--pg-accent)!important;color:#fff!important}
   #pys-guias .pg-cardtitle{font-size:1.01rem;line-height:1.25;letter-spacing:-.01em;
     font-weight:700;margin:0;text-wrap:balance;color:var(--pg-ink)}
   #pys-guias .pg-cardtitle a{color:inherit;text-decoration:none;outline:none}
@@ -83,8 +88,9 @@
   #pys-guias .pg-state{text-align:center;padding:54px 20px;color:var(--pg-onbg-muted)}
   #pys-guias .pg-state svg{width:36px;height:36px;color:var(--pg-faint);margin-bottom:12px}
   #pys-guias .pg-state strong{color:var(--pg-onbg)}
-  #pys-guias .pg-link{border:0;background:none;color:var(--pg-accent);font-weight:700;
-    cursor:pointer;font-size:1rem;font-family:inherit;padding:0;margin-left:4px;text-decoration:underline}
+  #pys-guias .pg-link{border:0!important;background:none!important;color:var(--pg-accent)!important;
+    font-weight:700;cursor:pointer;font-size:1rem!important;font-family:inherit;padding:0!important;
+    margin-left:4px;box-shadow:none!important;min-height:0!important;text-transform:none!important;text-decoration:underline}
 
   #pys-guias .pg-skel{background:var(--pg-surface);border:1px solid var(--pg-border);
     border-radius:15px;overflow:hidden;height:290px}
