@@ -126,6 +126,13 @@
   (function(){
     var ROOT=document.getElementById('pys-guias');
     if(!ROOT||ROOT.dataset.init) return; ROOT.dataset.init='1';
+    // Mostrar el buscador SOLO en la portada del blog (page_for_posts, body.blog).
+    // El archive template tambien carga en categorias/tags/fechas; ahi lo ocultamos.
+    if(!document.body.classList.contains('blog')){
+      var _econ=ROOT.closest('.e-con')||ROOT.parentElement;
+      if(_econ){_econ.style.display='none';} else {ROOT.style.display='none';}
+      return;
+    }
     var grid=ROOT.querySelector('.pg-grid'), input=ROOT.querySelector('.pg-input'),
         clearBtn=ROOT.querySelector('.pg-clear'), countEl=ROOT.querySelector('.pg-count'),
         emptyEl=ROOT.querySelector('.pg-empty'), totalEl=ROOT.querySelector('.pg-total');
