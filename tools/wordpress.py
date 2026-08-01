@@ -151,12 +151,16 @@ def publish_post(site_key: str, blog_data: dict, featured_media_id: int = None, 
     # incrusta dentro del contenido, para evitar la foto grande con crédito de
     # Unsplash justo antes del texto. El tema maneja la imagen destacada.
 
+    # Estado inicial por sitio. PYS nace en `draft` y lo promueve el agente SEO
+    # tras pasar las compuertas; el resto sigue publicando directo.
+    estado = SITES[site_key].get("publish_status", "publish")
+
     payload = {
         "title": blog_data["title"],
         "slug": blog_data.get("slug", ""),
         "content": content,
         "excerpt": blog_data.get("excerpt", ""),
-        "status": "publish",
+        "status": estado,
         "meta": {
             "rank_math_title": blog_data.get("rank_math_title", blog_data["title"]),
             "rank_math_description": blog_data.get("rank_math_description", ""),
@@ -192,7 +196,7 @@ def publish_post(site_key: str, blog_data: dict, featured_media_id: int = None, 
         )
         response.raise_for_status()
         post = response.json()
-        print(f"[WP] Post publicado: {post['link']}")
+        print(f"[WP] Post creado como {estado}: {post['link']}")
         return post
 
     except Exception as e:

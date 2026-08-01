@@ -24,6 +24,13 @@ SITES = {
         "unsplash_fallback": "peptides supplements sports performance",
         "seo_agent_url": os.getenv("SEO_AGENT_URL", "https://web-production-3743c.up.railway.app"),
         "seo_optimize_path": "/optimize-blog",
+        # El artículo nace en BORRADOR: el agente SEO lo promueve a `publish`
+        # solo si pasa las compuertas (2-3 enlaces a ficha, ningún 404, no
+        # canibaliza una ficha, retrofeed). Si se publicara de entrada, el
+        # rechazo llegaría con el artículo ya en vivo y no serviría de nada.
+        "publish_status": "draft",
+        "product_map_path": "/product-map",
+        "keyword_route_path": "/keyword-route",
         "wp_author_name": " ",
         "default_categories": ["Blog"],
     },

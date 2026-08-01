@@ -1,10 +1,37 @@
 import json
 import anthropic
+import requests
 from datetime import datetime
 from json_repair import repair_json
 from config import ANTHROPIC_API_KEY, SITES
 from prompts.system import get_system_prompt, get_arcade_system_prompt, get_arcade_review_system_prompt, get_agency_system_prompt
 from tools.arcade import list_guides as arcade_list_guides
+
+
+def fetch_product_map(site_key: str) -> str:
+    """Mapa {compuesto -> URL de ficha} desde el agente SEO, ANTES de generar.
+
+    Devuelve "" si el sitio no lo tiene configurado o si el agente no responde:
+    en ese caso el prompt no exige enlaces internos, porque exigirlos sin darle
+    las URLs reales es pedirle al modelo que las invente.
+    """
+    site = SITES[site_key]
+    base = site.get("seo_agent_url")
+    ruta = site.get("product_map_path")
+    if not base or not ruta:
+        return ""
+    try:
+        r = requests.get(f"{base}{ruta}", timeout=45)
+        fichas = (r.json() or {}).get("fichas") or []
+        if not fichas:
+            print("[Writer] /product-map devolvió 0 fichas — sigo sin mapa")
+            return ""
+        print(f"[Writer] Mapa de fichas cargado: {len(fichas)} fichas enlazables")
+        lineas = [f"- {f['nombre']} -> {f['url']}" for f in fichas if f.get("url")]
+        return "\n".join(lineas)
+    except Exception as e:
+        print(f"[Writer] No se pudo cargar el mapa de fichas ({e}) — sigo sin mapa")
+        return ""
 
 
 def _parse_json(text: str) -> dict:
@@ -212,7 +239,9 @@ Investiga para incluir datos actualizados y ejemplos reales, con fuentes de auto
 El artículo debe ser útil para personas interesadas en {site['niche']}. Cierra con un CTA claro a la agencia.
 Responde únicamente con el JSON solicitado."""
     else:
-        system_prompt = get_system_prompt(site["niche"], site["post_length"], year)
+        fichas_block = fetch_product_map(site_key)
+        system_prompt = get_system_prompt(site["niche"], site["post_length"], year,
+                                          fichas_block=fichas_block)
         user_message = f"""Escribe un artículo de blog completo y optimizado para SEO sobre: "{topic}"
 
 AÑO ACTUAL: {year}. Si incluyes un año por frescura/SEO (título o texto), usa {year}, nunca uno pasado. Solo conserva años reales al citar estudios, ensayos o eventos concretos.

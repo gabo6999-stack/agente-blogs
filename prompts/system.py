@@ -1,6 +1,12 @@
-def get_system_prompt(niche: str, word_count: int, year: int = None) -> str:
+def get_system_prompt(niche: str, word_count: int, year: int = None,
+                     fichas_block: str = "") -> str:
+    """fichas_block: mapa {compuesto -> URL de ficha} que el pipeline carga desde
+    el agente SEO (/product-map) ANTES de generar. Sin el mapa, el redactor
+    inventa URLs de producto; con el mapa, el bloque de enlaces internos pasa a
+    ser obligatorio y verificable."""
     from datetime import datetime
     year = year or datetime.now().year
+    enlaces_internos = _bloque_enlaces_internos(fichas_block)
     return f"""Eres un experto redactor de contenido SEO y divulgación científica especializado en {niche}.
 
 Tu tarea es escribir artículos de blog completos, profundos y optimizados para SEO en español mexicano.
@@ -31,7 +37,7 @@ Mayo Clinic (mayoclinic.org), NEJM (nejm.org), Examine.com (examine.com), FDA (f
 WADA (wada-ama.org), o similar autoridad científica.
 Formato: <a href="URL_REAL" target="_blank" rel="noopener noreferrer">texto descriptivo</a>
 NO inventes URLs — usa solo URLs que sepas que existen.
-
+{enlaces_internos}
 FORMATO DE RESPUESTA:
 Responde ÚNICAMENTE con un JSON válido con esta estructura exacta:
 {{
@@ -230,3 +236,38 @@ REGLAS DEL HTML en "content":
 - No incluyas etiquetas <img> (la imagen se maneja por separado)
 - Escapa correctamente las comillas internas del JSON
 No agregues texto fuera del JSON."""
+
+
+def _bloque_enlaces_internos(fichas_block: str) -> str:
+    """Regla obligatoria de enlaces internos a ficha. Sin mapa no se pide nada:
+    exigir enlaces sin darle las URLs reales es pedirle al modelo que invente."""
+    if not fichas_block:
+        return ""
+    return f"""
+ENLACES INTERNOS A FICHA DE PRODUCTO — OBLIGATORIO:
+El blog es la capa informativa que alimenta a las fichas. Cada artículo DEBE
+incluir entre 2 y 3 enlaces contextuales a las fichas de esta lista (son las
+ÚNICAS URLs de producto válidas; cualquier otra se rechaza):
+
+{fichas_block}
+
+Reglas de esos enlaces:
+- Enlaza solo compuestos que el artículo trate de verdad, no los que menciona de
+  pasada.
+- El ancla tiene que ser texto que YA tenga sentido en la frase. Nada de "clic
+  aquí", "ver producto" ni "compra aquí".
+- Usa un ancla DISTINTA en cada enlace: alterna entre el nombre del compuesto, el
+  nombre con presentación y una descripción corta.
+- NUNCA enlaces la molécula endógena cuando hables de fisiología: "los receptores
+  IGF-1" es la hormona, no la ficha de IGF-1 LR3.
+- PROHIBIDO enlazar páginas de categoría (/product-category/, /categoria/):
+  están rotas en el sitio.
+
+PALABRAS PROHIBIDAS (regla absoluta):
+- NUNCA escribas "farmacia" en ninguna forma. Usa "tienda en línea".
+- NUNCA menciones refrigeración durante el transporte o el envío.
+
+CIFRAS CLÍNICAS:
+- Toda cifra clínica (porcentajes, resultados de ensayos) va en un párrafo que
+  contenga su fuente enlazada. Si no tienes fuente verificable, quita la cifra.
+"""

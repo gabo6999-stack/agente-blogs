@@ -78,27 +78,73 @@ agent_status = {
 }
 
 
-def notify_seo_agent(site_key: str, post_id: int, title: str, content: str, url: str):
+def route_topic(site_key: str, topic: str) -> dict:
+    """¿El tema le toca al blog o a la ficha de producto?
+
+    Si la keyword es transaccional (precio, comprar, dosis en mg sobre un
+    compuesto del catálogo), el artículo NO se escribe: esa consulta la atiende
+    la ficha, y un post compitiendo por ella canibaliza. Si el sitio no tiene
+    ruteo o el agente no responde se sigue adelante (fail-open: no vale la pena
+    perder una publicación por un timeout).
+    """
+    site_cfg = SITES[site_key]
+    base = site_cfg.get("seo_agent_url")
+    ruta = site_cfg.get("keyword_route_path")
+    if not base or not ruta:
+        return {"decision": "blog", "razon": "sitio sin ruteo configurado"}
+    try:
+        r = requests.post(f"{base}{ruta}", json={"keyword": topic}, timeout=45)
+        return r.json()
+    except Exception as e:
+        print(f"[SEO] ⚠️ No se pudo rutear el tema ({e}) — sigo como blog")
+        return {"decision": "blog", "razon": f"ruteo no disponible: {e}"}
+
+
+def notify_seo_agent(site_key: str, post_id: int, title: str, content: str, url: str,
+                     keyword: str = ""):
+    """Manda el borrador al agente SEO, que lo optimiza y lo PROMUEVE a publicado
+    solo si pasa las compuertas. HTTP 409/422 = rechazado: se queda en borrador."""
     site_cfg = SITES[site_key]
     seo_agent_url = site_cfg.get("seo_agent_url")
     seo_optimize_path = site_cfg.get("seo_optimize_path", "/optimize-blog")
+    en_borrador = site_cfg.get("publish_status", "publish") == "draft"
     if not seo_agent_url:
         print(f"[SEO] Sitio '{site_key}' no tiene seo_agent_url configurado — saltando optimización")
-        return
+        if en_borrador:
+            print(f"[SEO] ⚠️ El post {post_id} queda en BORRADOR: nadie puede promoverlo")
+        return {"ok": False, "razon": "sin seo_agent_url"}
     try:
         print(f"[SEO] Enviando blog al agente SEO para optimización ({seo_optimize_path})...")
         response = requests.post(
             f"{seo_agent_url}{seo_optimize_path}",
-            json={"post_id": post_id, "title": title, "content": content, "url": url},
-            timeout=120
+            json={"post_id": post_id, "title": title, "content": content,
+                  "url": url, "keyword": keyword},
+            timeout=300
         )
         result = response.json()
+        if response.status_code in (409, 422) or result.get("rechazado"):
+            motivos = result.get("fallos") or [result.get("motivo", "sin detalle")]
+            print("[SEO] ⛔ Artículo RECHAZADO — se queda en borrador:")
+            for m in motivos:
+                print(f"[SEO]      · {m}")
+            notify_nexus(
+                action="Blog rechazado por las compuertas SEO",
+                detail=f"{title or post_id}: {'; '.join(str(m) for m in motivos)[:180]}",
+                url=url)
+            return {"ok": False, "rechazado": True, "fallos": motivos}
         if result.get("success"):
-            print(f"[SEO] ✅ Blog optimizado: {result.get('url', url)}")
-        else:
-            print(f"[SEO] ⚠️ No se pudo optimizar: {result.get('error')}")
+            estado = "publicado" if result.get("publicado") else "optimizado"
+            print(f"[SEO] ✅ Blog {estado}: {result.get('url', url)}")
+            for a in result.get("avisos", []):
+                print(f"[SEO]      aviso: {a}")
+            return {"ok": True, "url": result.get("url", url)}
+        print(f"[SEO] ⚠️ No se pudo optimizar: {result.get('error')}")
+        return {"ok": False, "razon": result.get("error")}
     except Exception as e:
         print(f"[SEO] ⚠️ Error al contactar agente SEO: {e}")
+        if en_borrador:
+            print(f"[SEO] ⚠️ El post {post_id} queda en BORRADOR hasta que se reintente")
+        return {"ok": False, "razon": str(e)}
 
 
 def notify_nexus(action: str, detail: str = None, url: str = None):
@@ -162,6 +208,19 @@ def run_pipeline(site_key: str, topic: str = None, country: str = None):
             topic = pick_topic(site_key, used_topics, country=country)
         print(f"[Pipeline] Tema seleccionado: {topic}")
 
+        # 1b. Ruteo por intención: lo transaccional NO es del blog, es de la ficha
+        ruta = route_topic(site_key, topic)
+        if ruta.get("decision") == "ficha":
+            duena = (ruta.get("ficha") or {}).get("nombre") or "una ficha de producto"
+            msg = (f"tema transaccional: le corresponde a {duena} — {ruta.get('razon','')}")
+            print(f"[Pipeline] ⛔ No se escribe el artículo. {msg}")
+            log_post(site_key, topic, None, success=False, error=msg)
+            notify_nexus(action="Tema descartado (le toca a la ficha)",
+                         detail=f"{topic}: {msg}"[:180],
+                         url=(ruta.get("ficha") or {}).get("url"))
+            agent_status["last_error"] = msg
+            return
+
         # 2. Generar blog
         blog_data = generate_blog(site_key, topic)
 
@@ -191,22 +250,26 @@ def run_pipeline(site_key: str, topic: str = None, country: str = None):
                 "date": datetime.now().strftime("%Y-%m-%d %H:%M")
             }
             agent_status["last_error"] = None
-            print(f"\n[Pipeline] ✅ Blog publicado: {post.get('link')}")
+            borrador = SITES[site_key].get("publish_status", "publish") == "draft"
+            print(f"\n[Pipeline] ✅ Blog {'creado como BORRADOR' if borrador else 'publicado'}: {post.get('link')}")
 
             # 7. Reportar a NEXUS (Centro de Comando)
             notify_nexus(
-                action="Publicó un blog",
+                action="Creó un borrador de blog" if borrador else "Publicó un blog",
                 detail=post.get("title", {}).get("rendered", "") or topic,
                 url=post.get("link", ""),
             )
 
-            # 8. Optimizar con agente SEO (config-driven: se salta si el sitio no tiene seo_agent_url, ej. Arcade)
+            # 8. Optimizar con agente SEO (config-driven: se salta si el sitio no
+            # tiene seo_agent_url, ej. Arcade). En los sitios con
+            # publish_status=draft, ESTE paso es el que promueve a publicado.
             notify_seo_agent(
                 site_key=site_key,
                 post_id=post.get("id"),
                 title=post.get("title", {}).get("rendered", ""),
                 content=blog_data.get("content", ""),
-                url=post.get("link", "")
+                url=post.get("link", ""),
+                keyword=blog_data.get("rank_math_focus_keyword", "") or topic,
             )
         else:
             agent_status["last_error"] = "Post creation failed"
