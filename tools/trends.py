@@ -1,8 +1,13 @@
 import os
 import random
+import re
 import requests
 from pytrends.request import TrendReq
 from config import SITES
+
+
+class TemasAgotados(RuntimeError):
+    """No queda ningún tema que no repita contenido ya publicado."""
 
 # Sitios del Blog Agent que tienen un market en DataForSEO (vía el SEO Agent).
 # grupoptm/PTM NO está (telemedicina, fuera del alcance de DataForSEO).
@@ -130,6 +135,40 @@ def get_trending_topics(site_key: str) -> list[str]:
         return shuffled[:10]
 
 
+_VACIAS = {
+    "de", "la", "el", "en", "para", "que", "tu", "un", "una", "y", "o", "por", "con",
+    "los", "las", "del", "al", "es", "como", "cómo", "mi", "se", "sirve", "son", "guia",
+    "guía", "paso", "mejor", "mejores", "sobre", "cual", "cuál", "qué", "que",
+}
+
+
+def _nucleo(frase: str) -> set:
+    """Palabras con carga semántica de un tema, sin acentos ni relleno."""
+    import unicodedata
+    plano = unicodedata.normalize("NFKD", (frase or "").lower()).encode("ascii", "ignore").decode()
+    return {w for w in re.findall(r"[a-z0-9]+", plano) if w not in _VACIAS and len(w) > 2}
+
+
+def es_tema_repetido(topic: str, usados, umbral: float = 0.6) -> bool:
+    """¿El tema repite uno ya publicado, aunque esté redactado distinto?
+
+    El filtro anterior comparaba cadenas exactas, así que "para que sirve google
+    search console", "google search console para que sirve" y "google search
+    console tools" pasaron como temas distintos y produjeron tres artículos que
+    compiten entre sí. Se compara el núcleo de palabras, no el texto literal.
+    """
+    nuevo = _nucleo(topic)
+    if not nuevo:
+        return False
+    for usado in usados or []:
+        viejo = _nucleo(usado)
+        if not viejo:
+            continue
+        if len(nuevo & viejo) / min(len(nuevo), len(viejo)) >= umbral:
+            return True
+    return False
+
+
 def pick_topic(site_key: str, used_topics: list[str] = [], country: str = None) -> str:
     """
     Selecciona el tema más relevante que no haya sido usado recientemente.
@@ -147,8 +186,14 @@ def pick_topic(site_key: str, used_topics: list[str] = [], country: str = None) 
         topics = get_trending_topics(site_key)
 
     for topic in topics:
-        if topic not in used_topics:
+        if not es_tema_repetido(topic, used_topics):
             return topic
 
-    # Si todos fueron usados, regresar el primero de todos modos
-    return topics[0] if topics else SITES[site_key]["keywords_seed"][0]
+    # Todo lo disponible ya está cubierto. Devolver algo igual sería escribir un
+    # artículo que canibaliza a uno propio, así que se avisa y se deja que el
+    # pipeline lo trate como corrida sin tema.
+    print(f"[Trends] ⚠️ Todos los temas de {site_key} repiten contenido ya publicado")
+    raise TemasAgotados(
+        f"No hay tema nuevo para '{site_key}': los {len(topics)} candidatos repiten "
+        f"artículos existentes. Encola un tema manualmente o amplía keywords_seed."
+    )

@@ -1,5 +1,4 @@
 import requests
-from requests.auth import HTTPBasicAuth
 from config import SITES
 
 
@@ -97,50 +96,91 @@ def inject_hide_author_css(site_key: str) -> dict:
     }
 
 
+_HEADERS_CACHE: dict[str, tuple[str, dict]] = {}
+
+
 def get_wp_headers(site_key: str) -> tuple[str, dict]:
     """
     Retorna la URL base y headers de autenticación para WordPress.
+
+    El resultado se cachea por sitio: sin JWT instalado (nodarishub) cada llamada
+    gastaba un round-trip a /jwt-auth/v1/token para fallar y caer a Basic Auth,
+    y una corrida hace decenas de llamadas.
     """
+    if site_key in _HEADERS_CACHE:
+        return _HEADERS_CACHE[site_key]
+
     site = SITES[site_key]
     wp_url = site["wp_url"]
-    
-    # Autenticación básica (funciona con Application Passwords de WP)
-    auth = HTTPBasicAuth(site["wp_user"], site["wp_password"])
-    
-    # Obtener JWT token
-    token_response = requests.post(
-        f"{wp_url}/wp-json/jwt-auth/v1/token",
-        json={
-            "username": site["wp_user"],
-            "password": site["wp_password"]
-        },
-        timeout=15
-    )
-    
-    if token_response.status_code == 200:
-        token = token_response.json().get("token")
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json"
-        }
-    else:
-        # Fallback a Basic Auth si JWT falla
-        print("[WP] JWT falló, usando Basic Auth")
-        import base64
-        credentials = base64.b64encode(
-            f"{site['wp_user']}:{site['wp_password']}".encode()
-        ).decode()
-        headers = {
-            "Authorization": f"Basic {credentials}",
-            "Content-Type": "application/json"
-        }
-    
+
+    import base64
+    credentials = base64.b64encode(
+        f"{site['wp_user']}:{site['wp_password']}".encode()
+    ).decode()
+    headers = {"Authorization": f"Basic {credentials}", "Content-Type": "application/json"}
+
+    try:
+        token_response = requests.post(
+            f"{wp_url}/wp-json/jwt-auth/v1/token",
+            json={"username": site["wp_user"], "password": site["wp_password"]},
+            timeout=15,
+        )
+        if token_response.status_code == 200:
+            token = token_response.json().get("token")
+            if token:
+                headers = {"Authorization": f"Bearer {token}",
+                           "Content-Type": "application/json"}
+        else:
+            print(f"[WP] {site_key}: sin JWT, uso Basic Auth (Application Password)")
+    except Exception as e:
+        print(f"[WP] {site_key}: JWT no disponible ({e}); uso Basic Auth")
+
+    _HEADERS_CACHE[site_key] = (wp_url, headers)
     return wp_url, headers
 
 
-def publish_post(site_key: str, blog_data: dict, featured_media_id: int = None, image_data: dict = None) -> dict | None:
+def set_rank_math_meta(site_key: str, post_id: int, meta: dict) -> bool:
+    """Persiste los campos rank_math_* de un post.
+
+    Hay que pasar por el endpoint propio de Rank Math: mandarlos en el campo
+    `meta` de /wp/v2/posts devuelve 200 pero el plugin los descarta en silencio.
+    Sin focus keyword guardada, Rank Math no tiene qué analizar y el post se
+    queda con puntaje 0; sin description, cae al excerpt.
+    """
+    meta = {k: v for k, v in (meta or {}).items() if v}
+    if not meta:
+        return True
+    wp_url, headers = get_wp_headers(site_key)
+    try:
+        r = requests.post(
+            f"{wp_url}/wp-json/rankmath/v1/updateMeta",
+            headers=headers,
+            json={"objectID": post_id, "objectType": "post", "meta": meta},
+            timeout=20,
+        )
+        if r.status_code == 200:
+            print(f"[WP] ✅ Rank Math actualizado en {post_id}: {', '.join(meta)}")
+            return True
+        print(f"[WP] ⚠️ Rank Math no aceptó las metas de {post_id}: {r.status_code} {r.text[:200]}")
+    except Exception as e:
+        print(f"[WP] ⚠️ Error escribiendo metas de Rank Math en {post_id}: {e}")
+    return False
+
+
+def _rank_math_payload(blog_data: dict) -> dict:
+    return {
+        "rank_math_title": blog_data.get("rank_math_title") or blog_data.get("title", ""),
+        "rank_math_description": blog_data.get("rank_math_description", ""),
+        "rank_math_focus_keyword": blog_data.get("rank_math_focus_keyword", ""),
+    }
+
+
+def publish_post(site_key: str, blog_data: dict, featured_media_id: int = None,
+                 image_data: dict = None, force_draft: bool = False) -> dict | None:
     """
     Publica el post en WordPress con metadatos de Rank Math.
+    `force_draft` retiene el artículo en borrador aunque el sitio publique directo
+    (lo usa la compuerta de longitud del pipeline).
     Retorna el post creado o None si falla.
     """
     wp_url, headers = get_wp_headers(site_key)
@@ -153,7 +193,7 @@ def publish_post(site_key: str, blog_data: dict, featured_media_id: int = None, 
 
     # Estado inicial por sitio. PYS nace en `draft` y lo promueve el agente SEO
     # tras pasar las compuertas; el resto sigue publicando directo.
-    estado = SITES[site_key].get("publish_status", "publish")
+    estado = "draft" if force_draft else SITES[site_key].get("publish_status", "publish")
 
     payload = {
         "title": blog_data["title"],
@@ -161,11 +201,6 @@ def publish_post(site_key: str, blog_data: dict, featured_media_id: int = None, 
         "content": content,
         "excerpt": blog_data.get("excerpt", ""),
         "status": estado,
-        "meta": {
-            "rank_math_title": blog_data.get("rank_math_title", blog_data["title"]),
-            "rank_math_description": blog_data.get("rank_math_description", ""),
-            "rank_math_focus_keyword": blog_data.get("rank_math_focus_keyword", ""),
-        }
     }
 
     # Agregar imagen destacada si existe
@@ -197,6 +232,7 @@ def publish_post(site_key: str, blog_data: dict, featured_media_id: int = None, 
         response.raise_for_status()
         post = response.json()
         print(f"[WP] Post creado como {estado}: {post['link']}")
+        set_rank_math_meta(site_key, post["id"], _rank_math_payload(blog_data))
         return post
 
     except Exception as e:
@@ -204,6 +240,52 @@ def publish_post(site_key: str, blog_data: dict, featured_media_id: int = None, 
         if hasattr(e, 'response') and e.response is not None:
             print(f"[WP] Respuesta: {e.response.text[:500]}")
         return None
+
+
+def get_used_photo_ids(site_key: str, per_page: int = 100) -> set[str]:
+    """Ids de Unsplash ya usados como portada, leídos del nombre de archivo.
+
+    `upload_image_to_wordpress` guarda las portadas como blog-<slug>-<idUnsplash>.jpg,
+    así que la biblioteca de medios es la fuente de verdad y no hace falta
+    persistir nada aparte (importa porque Railway reinicia sin estado).
+    """
+    import re
+    wp_url, headers = get_wp_headers(site_key)
+    try:
+        r = requests.get(
+            f"{wp_url}/wp-json/wp/v2/media",
+            headers=headers,
+            params={"per_page": per_page, "search": "blog-", "_fields": "source_url",
+                    "orderby": "date", "order": "desc"},
+            timeout=20,
+        )
+        r.raise_for_status()
+        ids = set()
+        for m in r.json():
+            nombre = (m.get("source_url") or "").split("/")[-1]
+            # Los ids de Unsplash son 11 caracteres base64url; exigirlo evita
+            # confundir el apellido del fotógrafo del esquema viejo de nombres
+            # (blog-image-hal-gatewood.jpg) con un id.
+            match = re.match(r"^blog-.+-([A-Za-z0-9_-]{11})\.jpe?g$", nombre)
+            if match:
+                ids.add(match.group(1))
+        return ids
+    except Exception as e:
+        print(f"[WP] No se pudieron leer las portadas ya usadas ({e}) — sigo sin filtro")
+        return set()
+
+
+def get_featured_media_id(site_key: str, post_id: int) -> int:
+    """Relee del sitio la portada realmente asignada (0 si no tiene)."""
+    wp_url, headers = get_wp_headers(site_key)
+    try:
+        r = requests.get(f"{wp_url}/wp-json/wp/v2/posts/{post_id}",
+                         headers=headers, params={"_fields": "featured_media"}, timeout=15)
+        r.raise_for_status()
+        return int(r.json().get("featured_media") or 0)
+    except Exception as e:
+        print(f"[WP] No se pudo verificar la portada de {post_id}: {e}")
+        return 0
 
 
 def get_posts_list(site_key: str, per_page: int = 100) -> list[dict]:
@@ -303,11 +385,6 @@ def update_post(site_key: str, post_id: int, blog_data: dict, featured_media_id:
         "title": blog_data["title"],
         "content": blog_data.get("content", ""),
         "excerpt": blog_data.get("excerpt", ""),
-        "meta": {
-            "rank_math_title": blog_data.get("rank_math_title", ""),
-            "rank_math_description": blog_data.get("rank_math_description", ""),
-            "rank_math_focus_keyword": blog_data.get("rank_math_focus_keyword", ""),
-        }
     }
 
     if featured_media_id:
@@ -329,6 +406,7 @@ def update_post(site_key: str, post_id: int, blog_data: dict, featured_media_id:
         response.raise_for_status()
         post = response.json()
         print(f"[WP] Post actualizado: {post['link']}")
+        set_rank_math_meta(site_key, post_id, _rank_math_payload(blog_data))
         return post
     except Exception as e:
         print(f"[WP] Error actualizando post: {e}")

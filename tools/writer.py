@@ -159,50 +159,67 @@ def _review_blog_arcade(client, site: dict, blog_data: dict, existing_guides, ye
     return blog_data
 
 
-def _count_words(html: str) -> int:
+def contar_palabras(html: str) -> int:
     """Cuenta palabras reales del cuerpo (sin contar etiquetas HTML)."""
     import re
     text = re.sub(r"<[^>]+>", " ", html or "")
     return len(re.findall(r"\w+", text))
 
 
-def _expand_if_thin_agency(client, site: dict, blog_data: dict) -> dict:
+def piso_de_palabras(site: dict) -> int:
+    """Mínimo de palabras publicable para el sitio."""
+    return max(1100, site.get("post_length", 1400) - 200)
+
+
+def _expand_if_thin_agency(client, site: dict, blog_data: dict, intentos: int = 2) -> dict:
     """Guard de longitud para posts de agencia (content_style='agency').
-    Si el borrador sale flaco, hace UNA pasada de expansión que profundiza sin
-    tocar título/slug y conservando enlaces, CTA y FAQ. Evita publicar artículos
-    delgados. Si la expansión falla o no mejora, conserva el borrador original."""
+
+    Reintenta la expansión hasta `intentos` veces y se queda con el borrador más
+    largo que consiga. Antes hacía una sola pasada y, si no alcanzaba, devolvía el
+    original sin avisar: así se publicaron entradas de 700-900 palabras. Quien
+    llama debe revisar la longitud final (ver `piso_de_palabras`) y decidir.
+    """
     target = site.get("post_length", 1400)
-    floor = max(1100, target - 200)
-    words = _count_words(blog_data.get("content", ""))
-    if words >= floor:
-        return blog_data
-    print(f"[Writer] Borrador flaco ({words} palabras < {floor}); expandiendo...")
-    try:
-        prompt = (
-            f"El siguiente artículo de blog de una agencia digital está demasiado corto "
-            f"({words} palabras). Amplíalo a MÍNIMO {target} palabras REALES de cuerpo, "
-            f"profundizando CADA sección con ejemplos concretos, comparativas, checklists y "
-            f"datos útiles para un dueño de PyME. NO cambies el título ni el slug. CONSERVA y "
-            f"refuerza los enlaces existentes (internos y externos), el CTA a la agencia y la "
-            f"sección de FAQ. No inventes URLs ni uses fuentes médicas/científicas. Responde "
-            f"ÚNICAMENTE con el MISMO JSON (misma estructura de campos) ya expandido.\n\n"
-            f"JSON ACTUAL:\n" + json.dumps(blog_data, ensure_ascii=False)
-        )
-        resp = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=16000,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        text = "".join(b.text for b in resp.content if hasattr(b, "text"))
-        expanded = _parse_json(text)
-        if expanded.get("content") and _count_words(expanded["content"]) > words:
-            expanded.setdefault("slug", blog_data.get("slug", ""))
-            print(f"[Writer] ✅ Expandido a {_count_words(expanded['content'])} palabras")
-            return expanded
-        print("[Writer] Expansión no mejoró; se conserva el borrador.")
-    except Exception as e:
-        print(f"[Writer] Expansión falló ({e}); se conserva el borrador.")
-    return blog_data
+    floor = piso_de_palabras(site)
+    mejor = blog_data
+    palabras = contar_palabras(blog_data.get("content", ""))
+
+    for intento in range(1, intentos + 1):
+        if palabras >= floor:
+            return mejor
+        print(f"[Writer] Borrador flaco ({palabras} palabras < {floor}); "
+              f"expandiendo (intento {intento}/{intentos})...")
+        try:
+            prompt = (
+                f"El siguiente artículo de blog de una agencia digital está demasiado corto "
+                f"({palabras} palabras). Amplíalo a MÍNIMO {target} palabras REALES de cuerpo, "
+                f"profundizando CADA sección con ejemplos concretos, comparativas, checklists y "
+                f"datos útiles para un dueño de PyME. NO cambies el título ni el slug. CONSERVA y "
+                f"refuerza los enlaces existentes (internos y externos), el CTA a la agencia y la "
+                f"sección de FAQ. No inventes URLs ni uses fuentes médicas/científicas. Responde "
+                f"ÚNICAMENTE con el MISMO JSON (misma estructura de campos) ya expandido.\n\n"
+                f"JSON ACTUAL:\n" + json.dumps(mejor, ensure_ascii=False)
+            )
+            resp = client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=16000,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            text = "".join(b.text for b in resp.content if hasattr(b, "text"))
+            expanded = _parse_json(text)
+            nuevas = contar_palabras(expanded.get("content", ""))
+            if expanded.get("content") and nuevas > palabras:
+                expanded.setdefault("slug", mejor.get("slug", ""))
+                mejor, palabras = expanded, nuevas
+                print(f"[Writer] ✅ Expandido a {palabras} palabras")
+            else:
+                print("[Writer] La expansión no aumentó el texto.")
+        except Exception as e:
+            print(f"[Writer] Expansión falló ({e}).")
+
+    if palabras < floor:
+        print(f"[Writer] ⚠️ El artículo sigue flaco: {palabras} palabras (piso {floor})")
+    return mejor
 
 
 def generate_blog(site_key: str, topic: str) -> dict:

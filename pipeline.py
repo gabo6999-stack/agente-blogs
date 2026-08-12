@@ -19,10 +19,12 @@ import uvicorn
 from pydantic import BaseModel
 
 from config import SITES
-from tools.trends import pick_topic
-from tools.writer import generate_blog, edit_blog
+from tools.trends import pick_topic, TemasAgotados
+from tools.writer import generate_blog, edit_blog, contar_palabras, piso_de_palabras
 from tools.images import get_unsplash_image, upload_image_to_wordpress
-from tools.wordpress import publish_post, get_wp_headers, get_post, get_tag_names, update_post, set_featured_image, get_posts_list, update_author_display_name, inject_hide_author_css
+from tools.wordpress import (publish_post, get_wp_headers, get_post, get_tag_names, update_post,
+                             set_featured_image, get_posts_list, update_author_display_name,
+                             inject_hide_author_css, get_used_photo_ids, get_featured_media_id)
 from tools.arcade import publish_post as arcade_publish_post
 from tools.logger import log_post, get_used_topics, get_history, get_last_post
 
@@ -183,6 +185,38 @@ def save_schedule_config(config: dict):
         json.dump(config, f, ensure_ascii=False, indent=2)
 
 
+def conseguir_portada(site_key: str, blog_data: dict, topic: str):
+    """Consigue y sube la imagen de portada. Devuelve (media_id, image_data).
+
+    Antes bastaba con que Unsplash fallara una vez para que el post saliera sin
+    portada y sin que nadie se enterara: 9 de 20 entradas de nodarishub quedaron
+    con el recuadro gris del listado. Ahora se intenta la consulta del artículo,
+    luego el nicho del sitio, y el fallo se reporta explícitamente.
+    """
+    site_cfg = SITES[site_key]
+    consultas = [
+        blog_data.get("unsplash_query"),
+        site_cfg.get("unsplash_fallback"),
+        topic,
+    ]
+    consultas = [c for c in consultas if c]
+    usados = get_used_photo_ids(site_key)
+
+    image_data = get_unsplash_image(consultas[0], avoid_ids=usados,
+                                    fallback_queries=consultas[1:])
+    if not image_data:
+        return None, None
+
+    wp_url, headers = get_wp_headers(site_key)
+    media_id = upload_image_to_wordpress(
+        image_data, wp_url, headers,
+        slug=blog_data.get("slug") or blog_data.get("title", ""),
+        # El alt describe el artículo; el de Unsplash viene en inglés y genérico.
+        alt_text=blog_data.get("image_alt") or blog_data.get("title", ""),
+    )
+    return media_id, image_data
+
+
 def run_pipeline(site_key: str, topic: str = None, country: str = None):
     """
     Pipeline completo: tendencias → escritura → imágenes → publicación
@@ -204,8 +238,20 @@ def run_pipeline(site_key: str, topic: str = None, country: str = None):
         if not topic:
             topic = pop_queued_topic(site_key)
         if not topic:
-            used_topics = get_used_topics(site_key)
-            topic = pick_topic(site_key, used_topics, country=country)
+            # Los títulos que el sitio ya tiene publicados cuentan como "usados"
+            # aunque no estén en el log: hay entradas subidas a mano que el
+            # agente nunca registró, y repetirlas canibaliza igual.
+            usados = get_used_topics(site_key)
+            if SITES[site_key].get("platform", "wordpress") == "wordpress":
+                usados += [p["title"] for p in get_posts_list(site_key) if p.get("title")]
+            try:
+                topic = pick_topic(site_key, usados, country=country)
+            except TemasAgotados as e:
+                print(f"[Pipeline] ⛔ {e}")
+                log_post(site_key, "(sin tema nuevo)", None, success=False, error=str(e))
+                notify_nexus(action="Sin tema nuevo que escribir", detail=str(e)[:180])
+                agent_status["last_error"] = str(e)
+                return
         print(f"[Pipeline] Tema seleccionado: {topic}")
 
         # 1b. Ruteo por intención: lo transaccional NO es del blog, es de la ficha
@@ -226,23 +272,43 @@ def run_pipeline(site_key: str, topic: str = None, country: str = None):
 
         platform = SITES[site_key].get("platform", "wordpress")
 
+        # 2b. Compuerta de longitud: un artículo por debajo del piso no sale en
+        # vivo. El writer ya reintentó expandirlo; si aún así no llega, se deja
+        # en borrador para revisión en vez de publicar algo delgado.
+        palabras = contar_palabras(blog_data.get("content", ""))
+        piso = piso_de_palabras(SITES[site_key])
+        forzar_borrador = palabras < piso
+        if forzar_borrador:
+            print(f"[Pipeline] ⛔ Artículo flaco ({palabras} < {piso}) — se deja en BORRADOR")
+            notify_nexus(action="Blog flaco dejado en borrador",
+                         detail=f"{blog_data.get('title', topic)}: {palabras} palabras (piso {piso})"[:180])
+
         # 3-4. Imagen de portada (solo WordPress; Arcade aún no maneja portada)
-        featured_media_id = None
+        featured_media_id, image_data = None, None
         if platform == "wordpress":
-            unsplash_query = blog_data.get("unsplash_query", topic)
-            image_data = get_unsplash_image(unsplash_query)
-            if image_data:
-                wp_url, headers = get_wp_headers(site_key)
-                featured_media_id = upload_image_to_wordpress(image_data, wp_url, headers)
+            featured_media_id, image_data = conseguir_portada(site_key, blog_data, topic)
+            if not featured_media_id:
+                print("[Pipeline] ⚠️ El post se publicará SIN imagen de portada")
+                notify_nexus(action="Blog sin imagen de portada",
+                             detail=f"{blog_data.get('title', topic)}: Unsplash no devolvió imagen usable"[:180])
 
         # 5. Publicar post (Arcade o WordPress según la plataforma del sitio)
         if platform == "arcade":
             post = arcade_publish_post(site_key, blog_data)
         else:
-            post = publish_post(site_key, blog_data, featured_media_id, image_data=image_data)
+            post = publish_post(site_key, blog_data, featured_media_id,
+                                image_data=image_data, force_draft=forzar_borrador)
 
         # 6. Registrar
         if post:
+            # Comprobar contra el sitio que la portada quedó puesta: el POST de
+            # creación puede devolver 200 e ignorar featured_media (p. ej. si el
+            # media aún no terminó de procesarse).
+            if platform == "wordpress" and featured_media_id:
+                if get_featured_media_id(site_key, post["id"]) != featured_media_id:
+                    print("[Pipeline] Portada no quedó asignada; reintentando...")
+                    set_featured_image(site_key, post["id"], featured_media_id)
+
             log_post(site_key, topic, post, success=True)
             agent_status["last_post"] = {
                 "title": post.get("title", {}).get("rendered", ""),
@@ -250,7 +316,7 @@ def run_pipeline(site_key: str, topic: str = None, country: str = None):
                 "date": datetime.now().strftime("%Y-%m-%d %H:%M")
             }
             agent_status["last_error"] = None
-            borrador = SITES[site_key].get("publish_status", "publish") == "draft"
+            borrador = forzar_borrador or SITES[site_key].get("publish_status", "publish") == "draft"
             print(f"\n[Pipeline] ✅ Blog {'creado como BORRADOR' if borrador else 'publicado'}: {post.get('link')}")
 
             # 7. Reportar a NEXUS (Centro de Comando)

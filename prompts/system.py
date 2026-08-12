@@ -49,7 +49,8 @@ Responde ÚNICAMENTE con un JSON válido con esta estructura exacta:
   "rank_math_description": "Meta description SEO (155 caracteres máximo)",
   "rank_math_focus_keyword": "keyword principal",
   "tags": ["tag1", "tag2", "tag3", "tag4", "tag5"],
-  "unsplash_query": "query en inglés para buscar imagen relacionada (2-3 palabras)"
+  "unsplash_query": "query en inglés para buscar imagen relacionada (2-3 palabras, específica del tema para no repetir la foto de otro artículo)",
+  "image_alt": "texto alternativo en ESPAÑOL que describa la imagen en relación con el artículo (máx 125 caracteres, incluye la keyword de forma natural)"
 }}
 
 REGLAS DEL HTML en "content":
@@ -227,7 +228,8 @@ Responde ÚNICAMENTE con un JSON válido con esta estructura exacta:
   "rank_math_description": "Meta description SEO (155 caracteres máximo)",
   "rank_math_focus_keyword": "keyword principal",
   "tags": ["tag1", "tag2", "tag3", "tag4", "tag5"],
-  "unsplash_query": "query en inglés para buscar imagen relacionada (2-3 palabras)"
+  "unsplash_query": "query en inglés para buscar imagen relacionada (2-3 palabras, específica del tema para no repetir la foto de otro artículo)",
+  "image_alt": "texto alternativo en ESPAÑOL que describa la imagen en relación con el artículo (máx 125 caracteres, incluye la keyword de forma natural)"
 }}
 
 REGLAS DEL HTML en "content":
