@@ -42,7 +42,7 @@ def _fetch_blog_topics(seo_url, market, seeds, location_code=None) -> tuple[list
     return kws, (data.get("cost_usd") or 0.0)
 
 
-def get_dataforseo_topics(site_key: str, country: str = None, max_seeds: int = 4) -> list[str]:
+def get_dataforseo_topics(site_key: str, country: str = None, max_seeds: int = 8) -> list[str]:
     """Temas data-driven (volumen real + KD alcanzable) vía el endpoint
     /blog-topics del SEO Agent, que consulta DataForSEO Labs.
 
@@ -50,6 +50,11 @@ def get_dataforseo_topics(site_key: str, country: str = None, max_seeds: int = 4
     = 1 llamada a la API, ~$0.018). Devuelve keywords ordenadas por volumen, o
     [] si el sitio no tiene market DataForSEO o si algo falla (el caller cae al
     fallback de pytrends/seeds).
+
+    max_seeds subió de 4 a 8 el 2026-08-13: con 4, el agente veía una fracción
+    tan pequeña del universo de keywords que el tema elegido dependía de qué
+    semillas tocaran esa corrida. Medido sobre nodarishub, 4 semillas devolvían
+    7 temas y las 14 semillas devuelven 38 con el filtro ya endurecido.
 
     country: para sitios binacionales (nodarishub) selecciona el país ("ec" |
     "mx"). Si es None y el sitio es binacional, combina ambos países (dedup por
