@@ -24,7 +24,8 @@ from tools.writer import generate_blog, edit_blog, contar_palabras, piso_de_pala
 from tools.images import get_unsplash_image, upload_image_to_wordpress
 from tools.wordpress import (publish_post, get_wp_headers, get_post, get_tag_names, update_post,
                              set_featured_image, get_posts_list, update_author_display_name,
-                             inject_hide_author_css, get_used_photo_ids, get_featured_media_id)
+                             inject_hide_author_css, get_used_photo_ids, get_featured_media_id,
+                             contar_posts_por_categoria)
 from tools.arcade import publish_post as arcade_publish_post
 from tools.logger import log_post, get_used_topics, get_history, get_last_post
 
@@ -185,6 +186,29 @@ def save_schedule_config(config: dict):
         json.dump(config, f, ensure_ascii=False, indent=2)
 
 
+def resolver_pais(site_key: str, country: str = None) -> str:
+    """País al que le toca la próxima entrada de un sitio binacional.
+
+    Si no se pide uno, publica en el país con MENOS artículos. Nodarishub sirve a
+    México y Ecuador desde subcarpetas distintas y la estrategia es Ecuador-first,
+    pero el blog arrancó con 10 entradas de México frente a 4 de Ecuador; dejar
+    que el país rezagado tenga prioridad corrige ese desnivel solo.
+    Devuelve "" si el sitio no es binacional.
+    """
+    paises = SITES[site_key].get("country_categories") or {}
+    if not paises:
+        return ""
+    if country and country in paises:
+        return country
+    conteos = {}
+    for clave, categoria in paises.items():
+        n = contar_posts_por_categoria(site_key, categoria)
+        conteos[clave] = n if n >= 0 else 0
+    elegido = min(conteos, key=lambda k: conteos[k])
+    print(f"[Pipeline] País por reparto: {elegido} (conteo actual: {conteos})")
+    return elegido
+
+
 def conseguir_portada(site_key: str, blog_data: dict, topic: str):
     """Consigue y sube la imagen de portada. Devuelve (media_id, image_data).
 
@@ -222,10 +246,10 @@ def run_pipeline(site_key: str, topic: str = None, country: str = None):
     Pipeline completo: tendencias → escritura → imágenes → publicación
 
     country: para sitios binacionales (nodarishub, sirve MX+EC), fija el país
-    del tema ("ec" | "mx"). None = combina ambos (Ecuador primero). Ver la nota
-    de estrategia "nodarishub SEO — Estrategia binacional".
-    TODO(subcarpetas): cuando el sitio migre a /ec/ y /mx/, usar `country`
-    también para elegir la subcarpeta de publicación en publish_post.
+    ("ec" | "mx"). Si no se indica, lo elige `resolver_pais` por reparto. El país
+    decide tanto el tema (location_code de DataForSEO) como la subcarpeta de
+    publicación: la categoría que se asigna es lo que hace que la entrada quede
+    en /ec/blog/ o /mx/blog/. Ver "nodarishub SEO — Estrategia binacional".
     """
     agent_status["running"] = True
     print(f"\n{'='*50}")
@@ -234,6 +258,10 @@ def run_pipeline(site_key: str, topic: str = None, country: str = None):
     print(f"{'='*50}\n")
 
     try:
+        # 0. País (solo sitios binacionales). Se fija ANTES de elegir el tema
+        # para que el tema salga del mercado correcto.
+        country = resolver_pais(site_key, country) or country
+
         # 1. Seleccionar tema: explícito > cola priorizada > pick_topic automático
         if not topic:
             topic = pop_queued_topic(site_key)
@@ -271,6 +299,17 @@ def run_pipeline(site_key: str, topic: str = None, country: str = None):
         blog_data = generate_blog(site_key, topic)
 
         platform = SITES[site_key].get("platform", "wordpress")
+
+        # 2a. Categoría del país: es lo que coloca la entrada en /ec/blog/ o
+        # /mx/blog/. Sin ella se quedaría colgando en la raíz.
+        paises = SITES[site_key].get("country_categories") or {}
+        if paises and country in paises:
+            categorias = list(blog_data.get("categories")
+                              or SITES[site_key].get("default_categories", []))
+            if paises[country] not in categorias:
+                categorias.append(paises[country])
+            blog_data["categories"] = categorias
+            print(f"[Pipeline] Categorías: {categorias}")
 
         # 2b. Compuerta de longitud: un artículo por debajo del piso no sale en
         # vivo. El writer ya reintentó expandirlo; si aún así no llega, se deja

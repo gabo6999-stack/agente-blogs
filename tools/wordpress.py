@@ -275,6 +275,21 @@ def get_used_photo_ids(site_key: str, per_page: int = 100) -> set[str]:
         return set()
 
 
+def contar_posts_por_categoria(site_key: str, nombre_categoria: str) -> int:
+    """Cuántas entradas publicadas tiene esa categoría (-1 si no se pudo saber)."""
+    wp_url, headers = get_wp_headers(site_key)
+    try:
+        r = requests.get(f"{wp_url}/wp-json/wp/v2/categories", headers=headers,
+                         params={"search": nombre_categoria, "per_page": 20}, timeout=15)
+        r.raise_for_status()
+        for c in r.json():
+            if c["name"].lower() == nombre_categoria.lower():
+                return int(c.get("count") or 0)
+    except Exception as e:
+        print(f"[WP] No se pudo contar '{nombre_categoria}' ({e})")
+    return -1
+
+
 def get_featured_media_id(site_key: str, post_id: int) -> int:
     """Relee del sitio la portada realmente asignada (0 si no tiene)."""
     wp_url, headers = get_wp_headers(site_key)

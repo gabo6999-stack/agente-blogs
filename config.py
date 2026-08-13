@@ -100,6 +100,11 @@ SITES = {
         "unsplash_fallback": "web design development software office",
         "wp_author_name": "Nodaris Hub",
         "default_categories": ["Blog"],
+        # El blog vive separado por país: /mx/blog/ y /ec/blog/. La categoría es
+        # lo que decide la subcarpeta (la construye el mu-plugin
+        # `nodaris-blog-paises` a partir de ella), así que cada entrada tiene que
+        # nacer con la de su mercado.
+        "country_categories": {"ec": "Ecuador", "mx": "México"},
     },
 }
 
