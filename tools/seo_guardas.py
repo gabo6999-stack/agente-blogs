@@ -51,13 +51,38 @@ def _sin_html(texto: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", texto or "")).strip()
 
 
+def prosa(texto: str) -> str:
+    """Texto visible: sin <script>/<style> y **sin URLs**.
+
+    Un slug dentro de un bloque JSON-LD (`/precio-retatrutida/`) se normaliza a
+    "precio retatrutida" y hace creer que la keyword ya está en el cuerpo cuando
+    no lo está. Rank Math no cae en eso; la verificación tampoco debe caer.
+    """
+    t = re.sub(r"<(script|style)\b.*?</\1\s*>", " ", texto or "", flags=re.S | re.I)
+    t = re.sub(r"""\b(?:https?://|/)[^\s"'<>]+""", " ", t)
+    return _sin_html(t)
+
+
+# Palabras con las que un titulo no puede terminar: "...precios, dosis y" lee
+# peor que "...precios, dosis". Venia del modulo seo_guards.py y se perdio al
+# fusionar; sin esto el recorte deja titulos colgando en "de", "en" o "y".
+_COLGANTES = {"y", "e", "o", "u", "de", "del", "la", "el", "los", "las", "un",
+              "una", "con", "sin", "para", "por", "en", "a", "al", "que", "su",
+              "sus", "lo", "se", "mas", "como", "donde"}
+
+
 def recorta_titulo(titulo: str, limite: int = MAX_TITULO) -> str:
-    """Recorta por palabra, nunca a media palabra."""
+    """Recorta por palabra, nunca a media palabra ni dejando una preposicion."""
     titulo = titulo.strip()
     if len(titulo) <= limite:
         return titulo
-    corte = titulo[:limite].rsplit(" ", 1)[0]
-    return corte.rstrip(" ,;:-–—|").strip()
+    corte = titulo[:limite]
+    if " " in corte:
+        corte = corte[:corte.rindex(" ")]
+    corte = corte.rstrip(" ,;:-–—|").strip()
+    while " " in corte and normaliza(corte.rsplit(" ", 1)[1]) in _COLGANTES:
+        corte = corte.rsplit(" ", 1)[0].rstrip(" ,;:-–—|")
+    return corte.strip()
 
 
 def revisa_keyword(keyword: str) -> str:
@@ -171,7 +196,93 @@ def inserta_indice(contenido: str) -> str:
     return contenido[:pos] + bloque + contenido[pos:]
 
 
-def aplica_guardas(blog_data: dict) -> tuple[bool, list[str]]:
+def obtener_url_media(wp_url: str, headers: dict, media_id: int) -> str | None:
+    """URL publica de un adjunto, para poder incrustarlo en el cuerpo."""
+    import requests
+    try:
+        r = requests.get(f"{wp_url}/wp-json/wp/v2/media/{media_id}",
+                         headers=headers, params={"_fields": "source_url"}, timeout=20)
+        if r.status_code == 200:
+            return (r.json() or {}).get("source_url")
+    except Exception as e:
+        print(f"[SEO-guarda] no se pudo leer la URL del media {media_id}: {e}")
+    return None
+
+
+def incrusta_imagen(contenido: str, url_imagen: str, keyword: str,
+                    titulo: str = "") -> tuple[str, bool]:
+    """Mete la imagen DESPUÉS del primer H2, con la keyword en el alt.
+
+    La imagen destacada **no cuenta** para `contentHasAssets` ni para
+    `keywordInImageAlt`: Rank Math solo mira el contenido. Va después del primer
+    H2 a propósito, para no romper la decisión de que el artículo no abra con la
+    foto de Unsplash y su crédito.
+
+    Medido en los 8 últimos posts de PYS antes de existir esta guarda:
+    keywordInImageAlt fallaba en 4 y contentHasAssets en 3.
+    """
+    if not url_imagen or not contenido:
+        return contenido, False
+    if re.search(r"<img\b", contenido, re.I):        # ya trae imagen propia
+        return contenido, False
+
+    alt = f"{keyword} — {recorta_titulo(titulo, 70)}" if titulo else keyword
+    if normaliza(keyword) not in normaliza(alt):
+        alt = keyword
+    fig = ('<figure class="wp-block-image size-large">'
+           f'<img src="{url_imagen}" alt="{alt}" loading="lazy" />'
+           "</figure>")
+    # Si el artículo viene en bloques de Gutenberg, la figura tiene que ir
+    # envuelta en su comentario o el editor la marca como bloque inválido.
+    # El escritor de PYS produce HTML plano y el de telenzia bloques: hay que
+    # detectarlo, no asumirlo.
+    if "<!-- wp:" in contenido:
+        fig = "<!-- wp:image -->" + fig + "<!-- /wp:image -->"
+    fig = "\n" + fig + "\n"
+
+    for patron in (r"</h2\s*>", r"</p\s*>"):
+        m = re.search(patron, contenido, re.I)
+        if m:
+            return contenido[:m.end()] + fig + contenido[m.end():], True
+    return contenido + fig, True
+
+
+def audita_onpage(blog_data: dict) -> dict:
+    """Mide los tests on-page sobre el contenido final. No modifica nada.
+
+    Existe porque el puntaje de Rank Math NO se puede usar para esto: solo lo
+    escribe el editor de Gutenberg al guardar, así que en un post creado por
+    REST viene vacío y cualquier compuerta del tipo `score >= 81` rechazaría el
+    100% de los artículos.
+    """
+    keyword = (blog_data.get("rank_math_focus_keyword") or "").split(",")[0].strip()
+    contenido = blog_data.get("content") or ""
+    titulo_seo = blog_data.get("rank_math_title") or blog_data.get("title") or ""
+    texto = prosa(contenido)
+    inicio = texto[:max(400, int(len(texto) * 0.10))]
+    encabezados = " ".join(re.findall(r"<h[23]\b[^>]*>(.*?)</h[23]\s*>",
+                                      contenido, re.S | re.I))
+    alts = " ".join(re.findall(r"<img\b[^>]*\balt=[\"']([^\"']*)", contenido, re.I))
+
+    def tiene(frase, donde):
+        return bool(normaliza(frase)) and normaliza(frase) in normaliza(donde)
+
+    checks = {
+        "keywordInTitle":       tiene(keyword, titulo_seo),
+        "titleLength":          0 < len(titulo_seo) <= MAX_TITULO,
+        "keywordInContent":     tiene(keyword, texto),
+        "keywordIn10Percent":   tiene(keyword, inicio),
+        "keywordInSubheadings": tiene(keyword, encabezados),
+        "contentHasAssets":     bool(re.search(r"<img\b", contenido, re.I)),
+        "keywordInImageAlt":    tiene(keyword, alts),
+        "keywordInMetaDesc":    tiene(keyword, blog_data.get("rank_math_description", "")),
+    }
+    fallos = [k for k, v in checks.items() if not v]
+    return {"keyword": keyword, "checks": checks, "fallos": fallos,
+            "criticos": [f for f in fallos if f in ("keywordInTitle", "titleLength")]}
+
+
+def aplica_guardas(blog_data: dict, url_imagen: str = "") -> tuple[bool, list[str]]:
     """Repara `blog_data` en sitio. Devuelve (publicable, notas).
 
     Publicable es False solo cuando hay palabras vetadas: eso no se repara solo
@@ -206,6 +317,15 @@ def aplica_guardas(blog_data: dict) -> tuple[bool, list[str]]:
     if con_indice != contenido:
         blog_data["content"] = con_indice
         notas.append("índice de contenidos insertado (cierra contentHasTOC)")
+
+    if url_imagen:
+        con_imagen, puesta = incrusta_imagen(blog_data.get("content") or "",
+                                             url_imagen, keyword,
+                                             blog_data.get("title", ""))
+        if puesta:
+            blog_data["content"] = con_imagen
+            notas.append("imagen incrustada en el cuerpo con la keyword en el alt "
+                         "(cierra contentHasAssets y keywordInImageAlt)")
 
     vetadas = busca_vetadas(titulo, desc, blog_data.get("content", ""), blog_data.get("title", ""))
     if vetadas:
