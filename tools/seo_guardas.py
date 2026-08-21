@@ -142,6 +142,15 @@ def inserta_indice(contenido: str) -> str:
 
     No hace nada si ya hay un índice o si el artículo tiene menos de 3
     encabezados, donde un índice estorba más de lo que ayuda.
+
+    ⚠️ **Solo aplica a contenido en bloques de Gutenberg**: el patrón exige
+    `<!-- wp:heading -->`. Medido el 2026-08-21 sobre PYS, el escritor de ese
+    sitio devuelve HTML plano (10 `<h2>` y cero comentarios de bloque), así que
+    ahí esta función es un no-op silencioso y `contentHasTOC` sigue abierto.
+    Funciona en telenzia, cuyo escritor sí emite bloques. Para cerrarlo en PYS
+    hay que hacer que el escritor emita bloques o extender el patrón al H2 pelado
+    — decisión pendiente, no se hizo aquí para no cambiar el formato del cuerpo
+    de un sitio en producción de pasada.
     """
     if not contenido or "rank-math/toc-block" in contenido:
         return contenido

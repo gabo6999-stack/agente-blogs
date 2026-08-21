@@ -27,8 +27,7 @@ from tools.wordpress import (publish_post, get_wp_headers, get_post, get_tag_nam
                              inject_hide_author_css, get_used_photo_ids, get_featured_media_id,
                              contar_posts_por_categoria)
 from tools.arcade import publish_post as arcade_publish_post
-from tools.seo_guards import (asegurar_keyword_en_titulo, auditar_onpage,
-                              incrustar_imagen, obtener_url_media)
+from tools.seo_guardas import audita_onpage
 from tools.logger import log_post, get_used_topics, get_history, get_last_post
 
 app = FastAPI()
@@ -333,38 +332,6 @@ def run_pipeline(site_key: str, topic: str = None, country: str = None):
                 notify_nexus(action="Blog sin imagen de portada",
                              detail=f"{blog_data.get('title', topic)}: Unsplash no devolvió imagen usable"[:180])
 
-        # 4b. Compuertas on-page. El puntaje de Rank Math NO sirve aquí: solo lo
-        # calcula el editor de Gutenberg al guardar, así que un post creado por
-        # REST no tiene puntaje y cualquier compuerta basada en él rechazaría el
-        # 100% de los artículos. Se miden los hechos, sobre el HTML que se va a
-        # enviar. Ver tools/seo_guards.py.
-        fix_titulo = asegurar_keyword_en_titulo(blog_data)
-        if fix_titulo["reparado"]:
-            print(f"[SEO] Título SEO reparado (keywordInTitle, 38 pts): {fix_titulo['motivo']}")
-        elif not fix_titulo["ok"]:
-            print(f"[SEO] ⚠️ keywordInTitle NO se pudo cerrar: {fix_titulo['motivo']}")
-            notify_nexus(action="Blog sin la keyword en el título SEO",
-                         detail=f"{blog_data.get('title', topic)}: {fix_titulo['motivo']}"[:180])
-
-        # La imagen destacada no cuenta para Rank Math: hace falta una DENTRO
-        # del contenido, y con la keyword en el alt.
-        if platform == "wordpress" and featured_media_id:
-            wp_url_g, headers_g = get_wp_headers(site_key)
-            url_img = obtener_url_media(wp_url_g, headers_g, featured_media_id)
-            nuevo_content, puesta = incrustar_imagen(
-                blog_data.get("content", ""), url_img,
-                blog_data.get("rank_math_focus_keyword", "").split(",")[0].strip(),
-                blog_data.get("title", ""))
-            if puesta:
-                blog_data["content"] = nuevo_content
-                print("[SEO] Imagen incrustada en el cuerpo con la keyword en el alt")
-
-        auditoria = auditar_onpage(blog_data)
-        if auditoria["fallos"]:
-            print(f"[SEO] Tests on-page que quedan abiertos: {', '.join(auditoria['fallos'])}")
-        else:
-            print("[SEO] ✅ Todos los tests on-page medibles cerrados")
-
         # 5. Publicar post (Arcade o WordPress según la plataforma del sitio)
         if platform == "arcade":
             post = arcade_publish_post(site_key, blog_data)
@@ -424,7 +391,7 @@ def run_pipeline(site_key: str, topic: str = None, country: str = None):
                 publicado = final.get("status") == "publish"
                 contenido = final.get("content", {}) or {}
                 cuerpo = contenido.get("raw") or contenido.get("rendered", "")
-                rev = auditar_onpage({
+                rev = audita_onpage({
                     "content": cuerpo,
                     "title": (final.get("title", {}) or {}).get("raw")
                              or (final.get("title", {}) or {}).get("rendered", ""),

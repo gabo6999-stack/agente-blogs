@@ -1,6 +1,6 @@
 import requests
 from config import SITES
-from tools.seo_guardas import aplica_guardas
+from tools.seo_guardas import aplica_guardas, obtener_url_media
 
 
 def get_current_user_id(site_key: str) -> int | None:
@@ -190,7 +190,12 @@ def publish_post(site_key: str, blog_data: dict, featured_media_id: int = None,
     # focus keyword (38 de los 100 puntos), insertan el indice de contenidos
     # (cierra contentHasTOC sin instalar nada) y rechazan las palabras vetadas
     # por el cliente. Ver tools/seo_guardas.py.
-    publicable, notas = aplica_guardas(blog_data)
+    # La imagen destacada no cuenta para Rank Math: hace falta una DENTRO del
+    # contenido. Se resuelve su URL aqui para que la guarda pueda incrustarla.
+    url_imagen = ""
+    if featured_media_id:
+        url_imagen = obtener_url_media(wp_url, headers, featured_media_id) or ""
+    publicable, notas = aplica_guardas(blog_data, url_imagen=url_imagen)
     for nota in notas:
         print(f"[SEO-guarda] {nota}")
     if not publicable:
@@ -199,9 +204,10 @@ def publish_post(site_key: str, blog_data: dict, featured_media_id: int = None,
 
     content = blog_data.get("content", "")
 
-    # La imagen se asigna SOLO como imagen destacada (featured_media); ya no se
-    # incrusta dentro del contenido, para evitar la foto grande con crédito de
-    # Unsplash justo antes del texto. El tema maneja la imagen destacada.
+    # La portada va como featured_media y la maneja el tema. La copia que SI se
+    # incrusta en el cuerpo la pone `aplica_guardas` despues del primer H2, para
+    # cerrar contentHasAssets/keywordInImageAlt sin abrir el articulo con la
+    # foto de Unsplash y su credito.
 
     # Estado inicial por sitio. PYS nace en `draft` y lo promueve el agente SEO
     # tras pasar las compuertas; el resto sigue publicando directo.
