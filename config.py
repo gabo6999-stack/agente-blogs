@@ -55,7 +55,7 @@ SITES = {
             "telemedicina en México", "consulta médica en línea", "cita médica virtual",
             "estudios de laboratorio hormonales", "biohacking", "longevidad",
         ],
-        "publish_days": ["monday", "tuesday", "thursday", "friday"],
+        "publish_days": ["monday", "thursday", "sunday"],
         "publish_time": "09:00",
         "post_length": 1500,
         "unsplash_fallback": "telemedicine doctor consultation hormonal health",
