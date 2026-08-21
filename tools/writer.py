@@ -83,7 +83,7 @@ Responde ÚNICAMENTE con un JSON válido con esta estructura exacta:
   "excerpt": "Resumen de 150 caracteres máximo",
   "rank_math_title": "Meta title SEO (60 caracteres máximo)",
   "rank_math_description": "Meta description SEO (160 caracteres máximo)",
-  "rank_math_focus_keyword": "keyword principal",
+  "rank_math_focus_keyword": "keyword principal: 2 o 3 palabras, sin interrogativas ('bajar de peso', no 'como bajar de peso rapido'). DEBE aparecer literal y contigua dentro de rank_math_title, o Rank Math pierde 38 de sus 100 puntos",
   "tags": ["tag1", "tag2", "tag3"],
   "unsplash_query": "2-3 palabras en inglés para buscar imagen en Unsplash"
 }}

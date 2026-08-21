@@ -10,7 +10,7 @@ class TemasAgotados(RuntimeError):
     """No queda ningún tema que no repita contenido ya publicado."""
 
 # Sitios del Blog Agent que tienen un market en DataForSEO (vía el SEO Agent).
-# grupoptm/PTM NO está (telemedicina, fuera del alcance de DataForSEO).
+# telenzia NO está (telemedicina, fuera del alcance de DataForSEO).
 SITE_TO_MARKET = {
     "peptidosysuplementos": "pys",
     "arcademotors": "arcade",
@@ -62,7 +62,7 @@ def get_dataforseo_topics(site_key: str, country: str = None, max_seeds: int = 8
     """
     market = SITE_TO_MARKET.get(site_key)
     if not market:
-        return []  # p. ej. grupoptm: sin market DataForSEO
+        return []  # p. ej. telenzia: sin market DataForSEO
     site = SITES[site_key]
     seo_url = site.get("seo_agent_url") or os.getenv("SEO_AGENT_URL") or DEFAULT_SEO_AGENT_URL
 

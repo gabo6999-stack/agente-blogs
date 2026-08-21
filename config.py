@@ -34,27 +34,37 @@ SITES = {
         "wp_author_name": " ",
         "default_categories": ["Blog"],
     },
-    "grupoptm": {
+    # Antes se llamaba "grupoptm" y apuntaba a grupoptm.com. PTM se rebrandeó a
+    # Telenzia, así que la clave y el sitio se movieron a telenzia.com. Las
+    # variables de entorno siguen siendo SITE2_* para no renombrarlas en Railway.
+    "telenzia": {
         "wp_url": os.getenv("SITE2_WP_URL"),
         "wp_user": os.getenv("SITE2_WP_USER"),
         "wp_password": os.getenv("SITE2_WP_PASSWORD"),
-        "niche": "telemedicina de péptidos y salud hormonal en México",
+        "niche": "telemedicina en salud hormonal y metabólica en México: control de peso con GLP-1, péptidos, terapia de reemplazo hormonal en hombres y salud hormonal en mujeres",
         "language": "es",
+        # Semillas alineadas con los 4 tipos de consulta del sitio, y todas de
+        # intención INFORMACIONAL a propósito: lo transaccional vive en las
+        # landings, y mandar un post a una consulta de compra no convierte.
         "keywords_seed": [
-            "telemedicina péptidos México", "semaglutide México", "péptidos para adelgazar",
-            "consulta médica péptidos", "retatrutide México", "longevidad péptidos",
-            "pérdida de peso péptidos", "GLP-1 México", "péptidos hormonales",
-            "medicina anti-aging México", "BPC-157 médico", "hormona de crecimiento terapéutica",
-            "médico especialista péptidos", "telemedicina bienestar", "tratamiento hormonal péptidos"
+            "salud hormonal", "salud metabólica", "control de peso con GLP-1",
+            "semaglutida", "tirzepatida", "análogos de GLP-1",
+            "péptidos", "terapia con péptidos", "recuperación y rendimiento",
+            "terapia de reemplazo hormonal", "testosterona baja", "TRH en hombres",
+            "menopausia", "perimenopausia", "SOP", "salud hormonal femenina",
+            "telemedicina en México", "consulta médica en línea", "cita médica virtual",
+            "estudios de laboratorio hormonales", "biohacking", "longevidad",
         ],
         "publish_days": ["monday", "tuesday", "thursday", "friday"],
         "publish_time": "09:00",
         "post_length": 1500,
-        "unsplash_fallback": "telemedicine doctor consultation health",
-        "seo_agent_url": os.getenv("SEO_AGENT_URL", "https://web-production-3743c.up.railway.app"),
-        "seo_optimize_path": "/optimize-ptm-blog",
-        "wp_author_name": "PTM",
-        "default_categories": ["Blog"],
+        "unsplash_fallback": "telemedicine doctor consultation hormonal health",
+        # SIN seo_agent_url a propósito: la ruta /optimize-ptm-blog del agente SEO
+        # está cableada a grupoptm.com (lee SU catálogo para los interlinks), así
+        # que optimizar por ahí inyectaría enlaces del sitio equivocado. Hasta que
+        # exista una ruta propia, el pipeline salta ese paso y publica directo.
+        "wp_author_name": "Telenzia",
+        "default_categories": ["Salud hormonal y metabólica"],
     },
     "arcademotors": {
         "platform": "arcade",                                   # NO es WordPress: postea al endpoint propio

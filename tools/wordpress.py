@@ -1,5 +1,6 @@
 import requests
 from config import SITES
+from tools.seo_guardas import aplica_guardas
 
 
 def get_current_user_id(site_key: str) -> int | None:
@@ -184,6 +185,17 @@ def publish_post(site_key: str, blog_data: dict, featured_media_id: int = None,
     Retorna el post creado o None si falla.
     """
     wp_url, headers = get_wp_headers(site_key)
+
+    # Guardas de Rank Math ANTES de publicar: reparan el titulo si perdio la
+    # focus keyword (38 de los 100 puntos), insertan el indice de contenidos
+    # (cierra contentHasTOC sin instalar nada) y rechazan las palabras vetadas
+    # por el cliente. Ver tools/seo_guardas.py.
+    publicable, notas = aplica_guardas(blog_data)
+    for nota in notas:
+        print(f"[SEO-guarda] {nota}")
+    if not publicable:
+        print("[WP] El articulo NO se publica: no paso las guardas de contenido")
+        return None
 
     content = blog_data.get("content", "")
 

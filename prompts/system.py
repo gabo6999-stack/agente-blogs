@@ -47,7 +47,7 @@ Responde ÚNICAMENTE con un JSON válido con esta estructura exacta:
   "excerpt": "Resumen de 155 caracteres máximo",
   "rank_math_title": "Meta title SEO (60 caracteres máximo)",
   "rank_math_description": "Meta description SEO (155 caracteres máximo)",
-  "rank_math_focus_keyword": "keyword principal",
+  "rank_math_focus_keyword": "keyword principal: 2 o 3 palabras, sin interrogativas ('bajar de peso', no 'como bajar de peso rapido'). DEBE aparecer literal y contigua dentro de rank_math_title, o Rank Math pierde 38 de sus 100 puntos",
   "tags": ["tag1", "tag2", "tag3", "tag4", "tag5"],
   "unsplash_query": "query en inglés para buscar imagen relacionada (2-3 palabras, específica del tema para no repetir la foto de otro artículo)",
   "image_alt": "texto alternativo en ESPAÑOL que describa la imagen en relación con el artículo (máx 125 caracteres, incluye la keyword de forma natural)"
@@ -129,7 +129,7 @@ Responde ÚNICAMENTE con un JSON válido con esta estructura exacta:
   "excerpt": "Resumen de 150 caracteres máximo",
   "rank_math_title": "Meta title SEO (60 caracteres máximo)",
   "rank_math_description": "Meta description SEO (160 caracteres máximo)",
-  "rank_math_focus_keyword": "keyword principal",
+  "rank_math_focus_keyword": "keyword principal: 2 o 3 palabras, sin interrogativas ('bajar de peso', no 'como bajar de peso rapido'). DEBE aparecer literal y contigua dentro de rank_math_title, o Rank Math pierde 38 de sus 100 puntos",
   "tags": ["tag1", "tag2", "tag3"],
   "unsplash_query": "query en inglés para imagen (2-3 palabras)"
 }}
@@ -226,7 +226,7 @@ Responde ÚNICAMENTE con un JSON válido con esta estructura exacta:
   "excerpt": "Resumen de 155 caracteres máximo",
   "rank_math_title": "Meta title SEO (60 caracteres máximo)",
   "rank_math_description": "Meta description SEO (155 caracteres máximo)",
-  "rank_math_focus_keyword": "keyword principal",
+  "rank_math_focus_keyword": "keyword principal: 2 o 3 palabras, sin interrogativas ('bajar de peso', no 'como bajar de peso rapido'). DEBE aparecer literal y contigua dentro de rank_math_title, o Rank Math pierde 38 de sus 100 puntos",
   "tags": ["tag1", "tag2", "tag3", "tag4", "tag5"],
   "unsplash_query": "query en inglés para buscar imagen relacionada (2-3 palabras, específica del tema para no repetir la foto de otro artículo)",
   "image_alt": "texto alternativo en ESPAÑOL que describa la imagen en relación con el artículo (máx 125 caracteres, incluye la keyword de forma natural)"
