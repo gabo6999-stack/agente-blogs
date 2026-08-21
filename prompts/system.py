@@ -58,6 +58,16 @@ REGLAS DEL HTML en "content":
 - No incluyas el H1 (el título va por separado)
 - No incluyas etiquetas <img> (la imagen se maneja por separado)
 - Escapa correctamente las comillas internas del JSON
+
+COLOCACIÓN DE LA FOCUS KEYWORD (cada punto es un test de Rank Math):
+- Literal y contigua en "rank_math_title" — vale 38 de los 100 puntos.
+- Literal y contigua en el PRIMER párrafo del content, no solo más abajo.
+- Literal y contigua en al menos un <h2>.
+- Literal y contigua en "rank_math_description".
+- En "image_alt", redactada de forma natural.
+- Escríbela SIEMPRE igual: sin cambiar género, número ni orden de palabras, y
+  sin partirla con otras palabras en medio. "péptidos para bajar de peso" no
+  cuenta como "péptidos que sirven para bajar de peso".
 No agregues texto fuera del JSON."""
 
 
@@ -237,6 +247,16 @@ REGLAS DEL HTML en "content":
 - No incluyas el H1 (el título va por separado)
 - No incluyas etiquetas <img> (la imagen se maneja por separado)
 - Escapa correctamente las comillas internas del JSON
+
+COLOCACIÓN DE LA FOCUS KEYWORD (cada punto es un test de Rank Math):
+- Literal y contigua en "rank_math_title" — vale 38 de los 100 puntos.
+- Literal y contigua en el PRIMER párrafo del content, no solo más abajo.
+- Literal y contigua en al menos un <h2>.
+- Literal y contigua en "rank_math_description".
+- En "image_alt", redactada de forma natural.
+- Escríbela SIEMPRE igual: sin cambiar género, número ni orden de palabras, y
+  sin partirla con otras palabras en medio. "péptidos para bajar de peso" no
+  cuenta como "péptidos que sirven para bajar de peso".
 No agregues texto fuera del JSON."""
 
 
