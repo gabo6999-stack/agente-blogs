@@ -103,6 +103,20 @@ SITES = {
             "rediseño de página web", "Google Search Console", "analítica web GA4",
             "marketing digital para PyMEs", "página web profesional", "dominio y hosting para negocio",
             "cuánto cuesta una página web", "WordPress vs desarrollo a medida",
+            # Clusters ganables medidos (DataForSEO EC 2218, ago-2026): buyer-intent
+            # + baja competencia. El motor de tráfico real, no el diseño web genérico
+            # (KD 100). Los temas de país-específico (SRI/SAT, Kushki/Mercado Pago) el
+            # redactor los localiza según la categoría de mercado de la entrada.
+            "desarrollo de software a la medida",      # 1.600/mes KD 0 — el más blando
+            "aplicaciones móviles a la medida",         # 260/mes KD 1 — era hueco
+            "app para tu negocio",
+            "qué es el e-commerce",                     # 480/mes KD 5, informacional-buyer
+            "cómo vender por internet desde cero",
+            "pago contra entrega en tu tienda en línea",   # 590/mes KD 0 (fuerte en EC)
+            "pasarela de pagos para tienda en línea",      # 320/mes KD 2
+            "facturación electrónica para tu tienda en línea",  # SRI (EC) / CFDI-SAT (MX)
+            "sistema de inventario y ventas para tu negocio",
+            "cuánto cobra una agencia de diseño web",   # buyer-research, no DIY
         ],
         "publish_days": ["monday", "wednesday", "friday"],
         "publish_time": "09:00",
