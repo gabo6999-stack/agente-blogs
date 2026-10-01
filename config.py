@@ -130,6 +130,55 @@ SITES = {
         # nacer con la de su mercado.
         "country_categories": {"ec": "Ecuador", "mx": "México"},
     },
+    # Colegio Waldorf en San Andrés Cholula. Antes publicaba Rafael Mena a mano con
+    # su propio Claude: tandas sin portada e imágenes de Wikimedia elegidas por
+    # palabra clave sin mirarlas (grabados, estatuas, un cartel político). Por eso
+    # este sitio pasa cada foto por una revisión con visión antes de usarla.
+    "tlaollin": {
+        "wp_url": os.getenv("SITE4_WP_URL"),
+        "wp_user": os.getenv("SITE4_WP_USER"),
+        "wp_password": os.getenv("SITE4_WP_PASSWORD"),
+        "content_style": "waldorf",
+        "niche": "pedagogía Waldorf, crianza consciente y desarrollo en la primera infancia (0 a 7 años) para familias de Cholula y Puebla",
+        "language": "es",
+        "keywords_seed": [
+            "pedagogía Waldorf", "escuela Waldorf en Puebla", "jardín de infancia Waldorf",
+            "primera infancia", "juego libre", "crianza consciente", "ritmo diario en casa",
+            "euritmia", "festivales de las estaciones", "huerto escolar", "arte en la infancia",
+            "lectoescritura en Waldorf", "madurez escolar", "naturaleza y niños",
+        ],
+        # Un artículo por semana, los lunes, sin fecha de fin (dueño, 2026-10-01).
+        # El contenedor corre en UTC: 15:00 UTC = 9:00 en el centro de México.
+        "publish_days": ["monday"],
+        "publish_time": "15:00",
+        # Sin market DataForSEO y publicando sin fin: cuando la cola se vacía,
+        # Claude propone temas nuevos contra lo ya publicado (ver get_idea_topics).
+        "topic_ideas": True,
+        "post_length": 1500,
+        "unsplash_fallback": "children playing outdoors nature",
+        "image_vision_check": True,
+        "default_categories": ["Pedagogía Walforf"],
+        # Nombres EXACTOS de las categorías del sitio ("Walforf" incluido: así se
+        # llama allá). Uno distinto crearía una categoría nueva.
+        "allowed_categories": [
+            "Pedagogía Walforf", "Primera Infancia", "Crianza Consciente",
+            "Juego y Aprendizaje", "Desarrollo Emocional", "Naturaleza y Sustentabilidad",
+            "Comunidad Educativa",
+        ],
+        "whatsapp": "5215534668552",
+        # Enlaces internos máximos en el cuerpo; el CTA del cierre no cuenta.
+        "max_internal_links": 5,
+        "cta_links": ["https://tlaollinwaldorfcholula.com/camino-de-ingreso-tlaollin/"],
+        # Páginas del sitio que el redactor puede enlazar (además de los posts).
+        "paginas_clave": {
+            "Pedagogía Waldorf y crianza positiva": "https://tlaollinwaldorfcholula.com/crianza-positiva-pedagogia-waldorf/",
+            "Euritmia en Tlaollin": "https://tlaollinwaldorfcholula.com/euritmia/",
+            "Camino de ingreso": "https://tlaollinwaldorfcholula.com/camino-de-ingreso-tlaollin/",
+            "Nuestra comunidad": "https://tlaollinwaldorfcholula.com/desarrollo-infantil-comunidad/",
+            "Nosotros": "https://tlaollinwaldorfcholula.com/comunidad-educativa-tlaollin-nosotros/",
+            "Nuestro equipo": "https://tlaollinwaldorfcholula.com/escuelas-alternativas-en-puebla-equipo/",
+        },
+    },
 }
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")

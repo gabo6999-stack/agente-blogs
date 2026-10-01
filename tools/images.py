@@ -25,7 +25,8 @@ def _buscar(query: str, per_page: int = 12) -> list[dict]:
     return r.json().get("results", []) or []
 
 
-def get_unsplash_image(query: str, avoid_ids=None, fallback_queries=None) -> dict | None:
+def get_unsplash_image(query: str, avoid_ids=None, fallback_queries=None,
+                       aceptar=None, revisiones_por_busqueda: int = 4) -> dict | None:
     """Busca en Unsplash una foto que NO se haya usado ya en el blog.
 
     Antes tomaba siempre `results[0]`, así que dos temas parecidos aterrizaban en
@@ -33,6 +34,12 @@ def get_unsplash_image(query: str, avoid_ids=None, fallback_queries=None) -> dic
     recorre los resultados y descarta los ids ya usados, y si una búsqueda se
     queda sin candidatos nuevos prueba las siguientes (`fallback_queries`) antes
     de rendirse.
+
+    `aceptar(photo) -> dict | None`: revisión opcional de cada candidata (p. ej.
+    con visión). Si devuelve None la foto se descarta; si devuelve un dict, sus
+    claves se mezclan al resultado (así llega el alt escrito viendo la foto).
+    Con `aceptar` no hay fallback a foto repetida ni a una no revisada: mejor sin
+    portada que con una que no corresponde.
     """
     avoid = set(avoid_ids or ())
     intentos = [q for q in [query, *(fallback_queries or [])] if q]
@@ -52,7 +59,17 @@ def get_unsplash_image(query: str, avoid_ids=None, fallback_queries=None) -> dic
             repetida = repetida or resultados[0]
             print(f"[Images] Todas las fotos de '{q}' ya se usaron; sigo buscando")
             continue
-        return _empaquetar(nuevas[0], q)
+        if not aceptar:
+            return _empaquetar(nuevas[0], q)
+        for photo in nuevas[:revisiones_por_busqueda]:
+            veredicto = aceptar(photo)
+            if veredicto:
+                return {**_empaquetar(photo, q), **veredicto}
+        print(f"[Images] Ninguna foto de '{q}' pasó la revisión; sigo buscando")
+
+    if aceptar:
+        print(f"[Images] ❌ Ninguna foto pasó la revisión: {intentos}")
+        return None
 
     if repetida:
         # Mejor una portada repetida que ninguna: el placeholder gris del listado
@@ -62,6 +79,53 @@ def get_unsplash_image(query: str, avoid_ids=None, fallback_queries=None) -> dic
 
     print(f"[Images] ❌ Ninguna búsqueda dio imagen: {intentos}")
     return None
+
+
+def revisar_foto_con_vision(photo: dict, titulo: str, criterio: str) -> dict | None:
+    """Mira la foto con Claude y decide si sirve de portada para `titulo`.
+
+    Existe porque elegir por palabra clave sin ver la imagen ya publicó, en
+    Tlaollin, grabados antiguos, estatuas y un cartel político con alt de "niños
+    jugando". Devuelve {"alt_text": ...} con un alt que describe lo que de verdad
+    se ve, o None si la foto no sirve o la revisión falla (falla cerrada).
+    """
+    import json
+    import anthropic
+    from config import ANTHROPIC_API_KEY
+
+    url = photo.get("urls", {}).get("small") or photo.get("urls", {}).get("regular")
+    if not url:
+        return None
+    pregunta = (
+        f'Esta foto es candidata a portada del artículo "{titulo}".\n'
+        f"Criterio del sitio: {criterio}\n\n"
+        "Recházala si: no se relaciona claramente con el artículo; tiene texto, logotipos o "
+        "marcas de agua; es una ilustración, grabado, pintura o foto antigua; se ve borrosa u "
+        "oscura; muestra pantallas, juguetes de plástico o un salón tradicional con pupitres y "
+        "pizarrón; o hay algo que una escuela no pondría en su sitio.\n"
+        'Responde SOLO con JSON: {"ok": true|false, "motivo": "...", '
+        '"alt": "descripción en español, máx 125 caracteres, de lo que SE VE en la foto"}'
+    )
+    try:
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        resp = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=300,
+            messages=[{"role": "user", "content": [
+                {"type": "image", "source": {"type": "url", "url": url}},
+                {"type": "text", "text": pregunta},
+            ]}],
+        )
+        texto = "".join(b.text for b in resp.content if hasattr(b, "text"))
+        datos = json.loads(texto[texto.find("{"):texto.rfind("}") + 1])
+    except Exception as e:
+        print(f"[Images] Revisión con visión falló ({e}); descarto la foto {photo.get('id')}")
+        return None
+
+    print(f"[Images] Visión {'✅' if datos.get('ok') else '❌'} {photo.get('id')}: {datos.get('motivo', '')[:120]}")
+    if not datos.get("ok") or not (datos.get("alt") or "").strip():
+        return None
+    return {"alt_text": datos["alt"].strip()[:125]}
 
 
 def _empaquetar(photo: dict, query: str) -> dict:

@@ -4,7 +4,8 @@ import requests
 from datetime import datetime
 from json_repair import repair_json
 from config import ANTHROPIC_API_KEY, SITES
-from prompts.system import get_system_prompt, get_arcade_system_prompt, get_arcade_review_system_prompt, get_agency_system_prompt
+from prompts.system import (get_system_prompt, get_arcade_system_prompt, get_arcade_review_system_prompt,
+                            get_agency_system_prompt, get_waldorf_system_prompt, bloque_enlaces_waldorf)
 from tools.arcade import list_guides as arcade_list_guides
 
 
@@ -171,6 +172,16 @@ def piso_de_palabras(site: dict) -> int:
     return max(1100, site.get("post_length", 1400) - 200)
 
 
+_EXPANSION_POR_ESTILO = {
+    "agency": ("de una agencia digital",
+               "comparativas, checklists y datos útiles para un dueño de PyME",
+               "el CTA a la agencia y la sección de FAQ. No inventes URLs ni uses fuentes médicas/científicas."),
+    "waldorf": ("de un jardín de infancia Waldorf",
+                "escenas cotidianas y sugerencias prácticas que una familia pueda aplicar en casa",
+                "la invitación final a conocer la escuela y la sección de FAQ. No inventes URLs ni datos de la escuela."),
+}
+
+
 def _expand_if_thin_agency(client, site: dict, blog_data: dict, intentos: int = 2) -> dict:
     """Guard de longitud para posts de agencia (content_style='agency').
 
@@ -190,13 +201,14 @@ def _expand_if_thin_agency(client, site: dict, blog_data: dict, intentos: int = 
         print(f"[Writer] Borrador flaco ({palabras} palabras < {floor}); "
               f"expandiendo (intento {intento}/{intentos})...")
         try:
+            quien, como, conserva = _EXPANSION_POR_ESTILO.get(
+                site.get("content_style"), _EXPANSION_POR_ESTILO["agency"])
             prompt = (
-                f"El siguiente artículo de blog de una agencia digital está demasiado corto "
+                f"El siguiente artículo de blog {quien} está demasiado corto "
                 f"({palabras} palabras). Amplíalo a MÍNIMO {target} palabras REALES de cuerpo, "
-                f"profundizando CADA sección con ejemplos concretos, comparativas, checklists y "
-                f"datos útiles para un dueño de PyME. NO cambies el título ni el slug. CONSERVA y "
-                f"refuerza los enlaces existentes (internos y externos), el CTA a la agencia y la "
-                f"sección de FAQ. No inventes URLs ni uses fuentes médicas/científicas. Responde "
+                f"profundizando CADA sección con ejemplos concretos, {como}. "
+                f"NO cambies el título ni el slug. CONSERVA y refuerza los enlaces existentes "
+                f"(internos y externos), {conserva} Responde "
                 f"ÚNICAMENTE con el MISMO JSON (misma estructura de campos) ya expandido.\n\n"
                 f"JSON ACTUAL:\n" + json.dumps(mejor, ensure_ascii=False)
             )
@@ -220,6 +232,31 @@ def _expand_if_thin_agency(client, site: dict, blog_data: dict, intentos: int = 
     if palabras < floor:
         print(f"[Writer] ⚠️ El artículo sigue flaco: {palabras} palabras (piso {floor})")
     return mejor
+
+
+def _recorta_enlaces_internos(html: str, dominio: str, tope: int, conservar=()) -> str:
+    """Deja solo los primeros `tope` enlaces internos; el resto conserva su texto.
+
+    En la prueba de Tlaollin el modelo metió 14 enlaces internos aunque el prompt
+    pedía 3-5: con tantos, ninguno pesa y el artículo parece un índice. El CTA a
+    WhatsApp no cuenta (es externo), y las URLs de `conservar` (el CTA del cierre)
+    nunca se quitan ni cuentan.
+    """
+    import re
+    from urllib.parse import urlparse
+    host = urlparse(dominio).netloc.replace("www.", "")
+    if not host:
+        return html
+    vistos = 0
+
+    def cambia(m):
+        nonlocal vistos
+        if host not in m.group(1) or m.group(1) in conservar:
+            return m.group(0)
+        vistos += 1
+        return m.group(0) if vistos <= tope else m.group(2)
+
+    return re.sub(r'<a\s[^>]*href="([^"]+)"[^>]*>(.*?)</a>', cambia, html, flags=re.S | re.I)
 
 
 def generate_blog(site_key: str, topic: str) -> dict:
@@ -255,6 +292,18 @@ Enfócalo en el dueño de un negocio/PyME (no en un técnico): explica el "por q
 Investiga para incluir datos actualizados y ejemplos reales, con fuentes de autoridad web/marketing.
 El artículo debe ser útil para personas interesadas en {site['niche']}. Cierra con un CTA claro a la agencia.
 Responde únicamente con el JSON solicitado."""
+    elif site.get("content_style") == "waldorf":
+        from tools.wordpress import get_posts_list
+        enlaces = bloque_enlaces_waldorf(site.get("paginas_clave"), get_posts_list(site_key))
+        system_prompt = get_waldorf_system_prompt(
+            site["niche"], site["post_length"], year, enlaces_block=enlaces,
+            categorias=site.get("allowed_categories"), whatsapp=site.get("whatsapp", ""))
+        user_message = f"""Escribe un artículo de blog completo y optimizado para SEO sobre: "{topic}"
+
+AÑO ACTUAL: {year}. Si incluyes un año por frescura, usa {year}, nunca uno pasado.
+Escríbelo para una familia de Cholula o Puebla con hijos pequeños. Que el artículo aporte algo que \
+los posts ya publicados de la lista de enlaces no cubran, y enlaza los que se relacionen.
+Responde únicamente con el JSON solicitado."""
     else:
         fichas_block = fetch_product_map(site_key)
         system_prompt = get_system_prompt(site["niche"], site["post_length"], year,
@@ -287,7 +336,20 @@ Responde únicamente con el JSON solicitado."""
 
     if is_arcade:
         blog_data = _review_blog_arcade(client, site, blog_data, existing_guides, year)
-    elif site.get("content_style") == "agency":
+    elif site.get("content_style") in ("agency", "waldorf"):
         blog_data = _expand_if_thin_agency(client, site, blog_data)
+
+    tope = site.get("max_internal_links")
+    if tope:
+        blog_data["content"] = _recorta_enlaces_internos(
+            blog_data.get("content", ""), site.get("wp_url") or "", tope,
+            conservar=site.get("cta_links", ()))
+
+    # Solo categorías que ya existen en el sitio: un nombre con otra grafía
+    # crearía una categoría nueva y vacía.
+    permitidas = site.get("allowed_categories")
+    if permitidas:
+        elegidas = [c for c in (blog_data.get("categories") or []) if c in permitidas]
+        blog_data["categories"] = elegidas[:1] or list(site.get("default_categories", []))
 
     return blog_data

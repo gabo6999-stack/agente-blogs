@@ -21,7 +21,7 @@ from pydantic import BaseModel
 from config import SITES
 from tools.trends import pick_topic, TemasAgotados
 from tools.writer import generate_blog, edit_blog, contar_palabras, piso_de_palabras
-from tools.images import get_unsplash_image, upload_image_to_wordpress
+from tools.images import get_unsplash_image, upload_image_to_wordpress, revisar_foto_con_vision
 from tools.wordpress import (publish_post, get_wp_headers, get_post, get_tag_names, update_post,
                              set_featured_image, get_posts_list, update_author_display_name,
                              inject_hide_author_css, get_used_photo_ids, get_featured_media_id,
@@ -227,17 +227,27 @@ def conseguir_portada(site_key: str, blog_data: dict, topic: str):
     consultas = [c for c in consultas if c]
     usados = get_used_photo_ids(site_key)
 
+    # Revisión con visión (sitios con image_vision_check): cada candidata se mira
+    # antes de usarla y el alt sale de lo que la foto muestra, no del tema.
+    aceptar = None
+    if site_cfg.get("image_vision_check"):
+        titulo = blog_data.get("title", topic)
+        criterio = f"blog sobre {site_cfg.get('niche', '')}"
+        aceptar = lambda photo: revisar_foto_con_vision(photo, titulo, criterio)
+
     image_data = get_unsplash_image(consultas[0], avoid_ids=usados,
-                                    fallback_queries=consultas[1:])
+                                    fallback_queries=consultas[1:], aceptar=aceptar)
     if not image_data:
         return None, None
 
     wp_url, headers = get_wp_headers(site_key)
+    alt = (image_data.get("alt_text") if aceptar else None) \
+        or blog_data.get("image_alt") or blog_data.get("title", "")
     media_id = upload_image_to_wordpress(
         image_data, wp_url, headers,
         slug=blog_data.get("slug") or blog_data.get("title", ""),
         # El alt describe el artículo; el de Unsplash viene en inglés y genérico.
-        alt_text=blog_data.get("image_alt") or blog_data.get("title", ""),
+        alt_text=alt,
     )
     return media_id, image_data
 
@@ -1057,10 +1067,13 @@ def fix_author_name():
 
 def schedule_sites():
     config = load_schedule_config()
-    for site_key in SITES.keys():
+    for site_key, site_cfg in SITES.items():
+        # Un sitio que aún no está en schedule_config.json (recién agregado)
+        # toma los días de SU config, no un lun-mar-jue-vie genérico.
         site_sched = config.get(site_key, {})
-        publish_time = site_sched.get("publish_time", "09:00")
-        publish_days = site_sched.get("publish_days", ["monday", "tuesday", "thursday", "friday"])
+        publish_time = site_sched.get("publish_time", site_cfg.get("publish_time", "09:00"))
+        publish_days = site_sched.get("publish_days",
+                                      site_cfg.get("publish_days", ["monday", "tuesday", "thursday", "friday"]))
 
         day_map = {
             "monday": schedule.every().monday,

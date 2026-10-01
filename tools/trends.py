@@ -140,6 +140,43 @@ def get_trending_topics(site_key: str) -> list[str]:
         return shuffled[:10]
 
 
+def get_idea_topics(site_key: str, used_topics: list[str]) -> list[str]:
+    """Temas propuestos por Claude a partir de lo ya publicado (topic_ideas=True).
+
+    Para sitios que publican sin fecha de fin y sin market en DataForSEO: con solo
+    las semillas, "primera infancia" o "juego libre" chocan enseguida con los
+    artículos que ya existen y el agente se queda sin tema. Aquí el modelo ve los
+    títulos publicados y propone ángulos concretos que no estén cubiertos.
+    """
+    import json
+    import anthropic
+    from config import ANTHROPIC_API_KEY
+
+    site = SITES[site_key]
+    publicados = "\n".join(f"- {t}" for t in (used_topics or [])[:150])
+    prompt = (
+        f"Eres editor del blog de un sitio sobre {site['niche']}.\n"
+        f"Estos artículos YA están publicados:\n{publicados or '(ninguno)'}\n\n"
+        "Propón 12 temas NUEVOS para el blog, que una familia buscaría en Google y que no repitan "
+        "ni parafraseen los de la lista. Prefiere ángulos concretos (una edad, una situación, una "
+        "época del año, una pregunta práctica) sobre temas generales. Inspírate en: "
+        f"{', '.join(site.get('keywords_seed', []))}.\n"
+        'Responde SOLO con un JSON: ["tema 1", "tema 2", ...] (cada tema de 4 a 10 palabras, en español).'
+    )
+    try:
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        resp = client.messages.create(model="claude-sonnet-4-6", max_tokens=1200,
+                                      messages=[{"role": "user", "content": prompt}])
+        texto = "".join(b.text for b in resp.content if hasattr(b, "text"))
+        temas = json.loads(texto[texto.find("["):texto.rfind("]") + 1])
+        temas = [t.strip() for t in temas if isinstance(t, str) and t.strip()]
+        print(f"[Trends] {len(temas)} ideas de tema propuestas para {site_key}")
+        return temas
+    except Exception as e:
+        print(f"[Trends] Ideas de tema fallaron ({e}); uso las semillas")
+        return []
+
+
 _VACIAS = {
     "de", "la", "el", "en", "para", "que", "tu", "un", "una", "y", "o", "por", "con",
     "los", "las", "del", "al", "es", "como", "cómo", "mi", "se", "sirve", "son", "guia",
@@ -187,6 +224,8 @@ def pick_topic(site_key: str, used_topics: list[str] = [], country: str = None) 
     de un solo país.
     """
     topics = get_dataforseo_topics(site_key, country=country)
+    if not topics and SITES[site_key].get("topic_ideas"):
+        topics = get_idea_topics(site_key, used_topics)
     if not topics:
         topics = get_trending_topics(site_key)
 
