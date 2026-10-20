@@ -42,11 +42,28 @@ def log_post(site_key: str, topic: str, post: dict, success: bool, error: str = 
     print(f"[Log] {status} {entry.get('title', topic)} → {entry.get('url', error)}")
 
 
+# Errores que descartan un tema PARA SIEMPRE (no son fallos transitorios). Si
+# no se cuentan como "usados", pick_topic vuelve a elegir el mismo tema en cada
+# corrida y la corrida se pierde: "ghk cu mexico" se descartó el 5-oct y el
+# 19-oct (y se habría seguido eligiendo) porque el ruteo lo manda a la ficha.
+_DESCARTE_PERMANENTE = ("tema transaccional", "tema de venta")
+
+
 def get_used_topics(site_key: str, last_n: int = 20) -> list[str]:
-    """Retorna los últimos N temas usados para evitar repetición."""
+    """Últimos N temas publicados + todos los descartados de forma permanente.
+
+    Los fallos transitorios (auth, red, créditos de la API) NO cuentan: ese
+    tema se debe reintentar.
+    """
     log = load_log()
-    site_logs = [e for e in log if e["site"] == site_key and e["success"]]
-    return [e["topic"] for e in site_logs[-last_n:]]
+    site_logs = [e for e in log if e.get("site") == site_key]
+    usados = [e["topic"] for e in site_logs if e.get("success")][-last_n:]
+    for e in site_logs:
+        error = str(e.get("error") or "")
+        if not e.get("success") and error.startswith(_DESCARTE_PERMANENTE):
+            if e.get("topic") and e["topic"] not in usados:
+                usados.append(e["topic"])
+    return usados
 
 
 def get_history(site_key: str = None, limit: int = 20) -> list:
