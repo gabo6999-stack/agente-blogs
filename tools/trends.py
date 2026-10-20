@@ -154,12 +154,17 @@ def get_idea_topics(site_key: str, used_topics: list[str]) -> list[str]:
 
     site = SITES[site_key]
     publicados = "\n".join(f"- {t}" for t in (used_topics or [])[:150])
-    prompt = (
-        f"Eres editor del blog de un sitio sobre {site['niche']}.\n"
-        f"Estos artículos YA están publicados:\n{publicados or '(ninguno)'}\n\n"
+    # Cada sitio describe qué temas quiere; sin brief se usa el original de
+    # Tlaollin (familias), que es para el que se escribió esta función.
+    brief = site.get("topic_ideas_brief") or (
         "Propón 12 temas NUEVOS para el blog, que una familia buscaría en Google y que no repitan "
         "ni parafraseen los de la lista. Prefiere ángulos concretos (una edad, una situación, una "
-        "época del año, una pregunta práctica) sobre temas generales. Inspírate en: "
+        "época del año, una pregunta práctica) sobre temas generales.")
+    prompt = (
+        f"Eres editor del blog de un sitio sobre {site['niche']}.\n"
+        f"Estos artículos YA están publicados (aquí o en otro sitio; no los repitas ni los "
+        f"parafrasees):\n{publicados or '(ninguno)'}\n\n"
+        f"{brief} Inspírate en: "
         f"{', '.join(site.get('keywords_seed', []))}.\n"
         'Responde SOLO con un JSON: ["tema 1", "tema 2", ...] (cada tema de 4 a 10 palabras, en español).'
     )
@@ -211,6 +216,22 @@ def es_tema_repetido(topic: str, usados, umbral: float = 0.6) -> bool:
     return False
 
 
+def es_tema_bloqueado(site_key: str, topic: str) -> bool:
+    """¿El tema está fuera del nicho (topic_blocklist, por palabra completa) o,
+    en un sitio con sales_gate, trae intención de compra o de país ("precio",
+    "comprar", "dónde", "México")?"""
+    site = SITES[site_key]
+    texto = " " + re.sub(r"[^\w]+", " ", (topic or "").lower()) + " "
+    for vetado in site.get("topic_blocklist", []):
+        if f" {vetado.lower()} " in texto:
+            return True
+    if site.get("sales_gate"):
+        from tools.revisor_ventas import hallazgos_venta
+        if hallazgos_venta(topic) or re.search(r"\bd[oó]nde\b|\bm[eé]xico\b", topic or "", re.I):
+            return True
+    return False
+
+
 def pick_topic(site_key: str, used_topics: list[str] = [], country: str = None) -> str:
     """
     Selecciona el tema más relevante que no haya sido usado recientemente.
@@ -230,6 +251,9 @@ def pick_topic(site_key: str, used_topics: list[str] = [], country: str = None) 
         topics = get_trending_topics(site_key)
 
     for topic in topics:
+        if es_tema_bloqueado(site_key, topic):
+            print(f"[Trends] Tema descartado (fuera de nicho o de venta): {topic}")
+            continue
         if not es_tema_repetido(topic, used_topics):
             return topic
 

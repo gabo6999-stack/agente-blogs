@@ -34,7 +34,9 @@ LINKS EXTERNOS OBLIGATORIOS — MUY IMPORTANTE:
 Debes incluir entre 4 y 6 links a fuentes científicas reales DENTRO del texto como hipervínculos HTML.
 Usa ÚNICAMENTE URLs reales y verificables de: PubMed (ncbi.nlm.nih.gov/pmc/), NIH (nih.gov),
 Mayo Clinic (mayoclinic.org), NEJM (nejm.org), Examine.com (examine.com), FDA (fda.gov),
-WADA (wada-ama.org), o similar autoridad científica.
+o similar autoridad científica.
+PROHIBIDO, sin excepción: nada sobre dopaje. No menciones ni enlaces a la WADA/AMA, su Lista
+de Prohibiciones, controles antidopaje ni métodos de detección en competición.
 Formato: <a href="URL_REAL" target="_blank" rel="noopener noreferrer">texto descriptivo</a>
 NO inventes URLs — usa solo URLs que sepas que existen.
 {enlaces_internos}

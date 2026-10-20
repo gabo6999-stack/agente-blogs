@@ -33,6 +33,11 @@ SITES = {
         "keyword_route_path": "/keyword-route",
         "wp_author_name": " ",
         "default_categories": ["Blog"],
+        # DataForSEO devuelve keywords de otras industrias que comparten una
+        # semilla: "dog chow longevidad" (croquetas para perro) salió de
+        # "longevidad" y se publicó el 3-oct (post 2924) tras 6 corridas.
+        "topic_blocklist": ["dog chow", "purina", "croqueta", "perro", "perros",
+                            "gato", "gatos", "mascota", "mascotas"],
     },
     # Antes se llamaba "grupoptm" y apuntaba a grupoptm.com. PTM se rebrandeó a
     # Telenzia, así que la clave y el sitio se movieron a telenzia.com. Las

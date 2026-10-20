@@ -24,7 +24,10 @@ import uuid
 
 # Reglas de contenido del cliente (CLAUDE.md). Un generador de texto las rompe
 # sin avisar, así que se verifican por código y no por buena intención.
-PALABRAS_VETADAS = ["farmacia", "farmacias"]
+PALABRAS_VETADAS = ["farmacia", "farmacias",
+                    # Nada de dopaje, nunca (decisión del dueño, 2026-09-23). El
+                    # prompt de PYS SUGERÍA enlazar wada-ama.org hasta el 19-oct.
+                    "dopaje", "antidopaje", "doping", "antidoping", "wada"]
 FRASES_VETADAS = ["refrigeración adecuada", "refrigeracion adecuada"]
 
 MAX_TITULO = 60          # más allá, Google trunca el snippet
