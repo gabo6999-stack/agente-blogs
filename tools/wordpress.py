@@ -1,12 +1,13 @@
+import time
+
 import requests
 from config import SITES
 from tools.seo_guardas import aplica_guardas, obtener_url_media
 
 
 def get_current_user_id(site_key: str) -> int | None:
-    wp_url, headers = get_wp_headers(site_key)
     try:
-        r = requests.get(f"{wp_url}/wp-json/wp/v2/users/me", headers=headers, timeout=10)
+        r = wp_request("get", site_key, "/wp-json/wp/v2/users/me", timeout=10)
         return r.json().get("id")
     except Exception as e:
         print(f"[WP] Error obteniendo usuario actual: {e}")
@@ -14,18 +15,13 @@ def get_current_user_id(site_key: str) -> int | None:
 
 
 def update_author_display_name(site_key: str, display_name: str) -> bool:
-    wp_url, headers = get_wp_headers(site_key)
     user_id = get_current_user_id(site_key)
     if not user_id:
         print(f"[WP] No se pudo obtener el ID del usuario para {site_key}")
         return False
     try:
-        r = requests.post(
-            f"{wp_url}/wp-json/wp/v2/users/{user_id}",
-            headers=headers,
-            json={"name": display_name},
-            timeout=10
-        )
+        r = wp_request("post", site_key, f"/wp-json/wp/v2/users/{user_id}",
+                       json={"name": display_name}, timeout=10)
         result = r.json()
         if "id" in result:
             print(f"[WP] ✅ Display name actualizado en {site_key}")
@@ -50,21 +46,15 @@ def inject_hide_author_css(site_key: str) -> dict:
         ".post-info .author, .jeg_meta_author, "
         ".meta-author, .author-link { display: none !important; }"
     )
-    wp_url, headers = get_wp_headers(site_key)
-
     # Intenta global-styles (WP 5.9+ / Gutenberg)
     try:
-        themes_r = requests.get(
-            f"{wp_url}/wp-json/wp/v2/global-styles/themes",
-            headers=headers, timeout=10
-        )
+        themes_r = wp_request("get", site_key, "/wp-json/wp/v2/global-styles/themes", timeout=10)
         if themes_r.status_code == 200:
             data = themes_r.json()
             gs_id = data.get("id") if isinstance(data, dict) else None
             if gs_id:
-                patch_r = requests.post(
-                    f"{wp_url}/wp-json/wp/v2/global-styles/{gs_id}",
-                    headers=headers,
+                patch_r = wp_request(
+                    "post", site_key, f"/wp-json/wp/v2/global-styles/{gs_id}",
                     json={"settings": {}, "styles": {"css": HIDE_AUTHOR_CSS}},
                     timeout=10
                 )
@@ -75,9 +65,8 @@ def inject_hide_author_css(site_key: str) -> dict:
 
     # Intenta crear/actualizar el post de CSS adicional (wp/v2/custom_css)
     try:
-        css_r = requests.post(
-            f"{wp_url}/wp-json/wp/v2/custom_css",
-            headers=headers,
+        css_r = wp_request(
+            "post", site_key, "/wp-json/wp/v2/custom_css",
             json={"status": "publish", "content": HIDE_AUTHOR_CSS},
             timeout=10
         )
@@ -97,20 +86,20 @@ def inject_hide_author_css(site_key: str) -> dict:
     }
 
 
-_HEADERS_CACHE: dict[str, tuple[str, dict]] = {}
+# (headers, hora_en_que_se_obtuvo) por sitio.
+_HEADERS_CACHE: dict[str, tuple[str, dict, float]] = {}
+
+# El plugin JWT de PYS/Telenzia expira el token a los 7 días (default de
+# "JWT Authentication for WP REST API"). Cachearlo sin TTL dejó el proceso
+# publicando con un token vencido durante semanas hasta el siguiente redeploy
+# — PYS no publicó nada del 2026-08-22 al 2026-09-21 por esto: cada llamada
+# fallaba con 403 jwt_auth_invalid_token/"Expired token" y ninguna de las 14
+# funciones que usan get_wp_headers() lo detectaba ni reintentaba. Se refresca
+# solo por TTL, y además ante cualquier 401/403 real vía _wp_request().
+_HEADERS_TTL = 6 * 24 * 3600  # 6 días: margen bajo los 7 días típicos de expiración
 
 
-def get_wp_headers(site_key: str) -> tuple[str, dict]:
-    """
-    Retorna la URL base y headers de autenticación para WordPress.
-
-    El resultado se cachea por sitio: sin JWT instalado (nodarishub) cada llamada
-    gastaba un round-trip a /jwt-auth/v1/token para fallar y caer a Basic Auth,
-    y una corrida hace decenas de llamadas.
-    """
-    if site_key in _HEADERS_CACHE:
-        return _HEADERS_CACHE[site_key]
-
+def _fetch_wp_headers(site_key: str) -> tuple[str, dict]:
     site = SITES[site_key]
     wp_url = site["wp_url"]
 
@@ -136,8 +125,58 @@ def get_wp_headers(site_key: str) -> tuple[str, dict]:
     except Exception as e:
         print(f"[WP] {site_key}: JWT no disponible ({e}); uso Basic Auth")
 
-    _HEADERS_CACHE[site_key] = (wp_url, headers)
     return wp_url, headers
+
+
+def get_wp_headers(site_key: str, force_refresh: bool = False) -> tuple[str, dict]:
+    """
+    Retorna la URL base y headers de autenticación para WordPress.
+
+    El resultado se cachea por sitio (evita un round-trip a /jwt-auth/v1/token
+    en cada una de las decenas de llamadas por corrida), pero con TTL de 6 días
+    y con invalidación reactiva ante un 401/403 (ver invalidate_wp_headers y
+    _wp_request) — nunca se queda pegado a un token ya vencido.
+    """
+    cached = _HEADERS_CACHE.get(site_key)
+    if cached and not force_refresh:
+        wp_url, headers, fetched_at = cached
+        if time.time() - fetched_at < _HEADERS_TTL:
+            return wp_url, headers
+
+    wp_url, headers = _fetch_wp_headers(site_key)
+    _HEADERS_CACHE[site_key] = (wp_url, headers, time.time())
+    return wp_url, headers
+
+
+def invalidate_wp_headers(site_key: str) -> None:
+    """Fuerza que la próxima get_wp_headers() pida un token nuevo."""
+    _HEADERS_CACHE.pop(site_key, None)
+
+
+def _is_auth_error(response) -> bool:
+    if response is None or response.status_code not in (401, 403):
+        return False
+    try:
+        return "jwt_auth" in (response.json().get("code") or "")
+    except Exception:
+        return response.status_code in (401, 403)
+
+
+def wp_request(method: str, site_key: str, path: str, **kwargs) -> "requests.Response":
+    """requests.<method> a `{wp_url}{path}` con los headers de auth del sitio;
+    si la respuesta es un 401/403 de JWT (token expirado), invalida el caché
+    y reintenta UNA vez con un token fresco antes de devolver la respuesta.
+    No acepta `headers` propio: siempre usa el de get_wp_headers(site_key)."""
+    kwargs.pop("headers", None)
+    kwargs.setdefault("timeout", 20)
+    wp_url, headers = get_wp_headers(site_key)
+    r = requests.request(method, f"{wp_url}{path}", headers=headers, **kwargs)
+    if _is_auth_error(r):
+        print(f"[WP] {site_key}: token JWT expirado a media corrida, pido uno nuevo y reintento")
+        invalidate_wp_headers(site_key)
+        wp_url, headers = get_wp_headers(site_key, force_refresh=True)
+        r = requests.request(method, f"{wp_url}{path}", headers=headers, **kwargs)
+    return r
 
 
 def set_rank_math_meta(site_key: str, post_id: int, meta: dict) -> bool:
@@ -151,11 +190,9 @@ def set_rank_math_meta(site_key: str, post_id: int, meta: dict) -> bool:
     meta = {k: v for k, v in (meta or {}).items() if v}
     if not meta:
         return True
-    wp_url, headers = get_wp_headers(site_key)
     try:
-        r = requests.post(
-            f"{wp_url}/wp-json/rankmath/v1/updateMeta",
-            headers=headers,
+        r = wp_request(
+            "post", site_key, "/wp-json/rankmath/v1/updateMeta",
             json={"objectID": post_id, "objectType": "post", "meta": meta},
             timeout=20,
         )
@@ -228,7 +265,7 @@ def publish_post(site_key: str, blog_data: dict, featured_media_id: int = None,
     # Agregar tags si existen
     tags = blog_data.get("tags", [])
     if tags:
-        tag_ids = get_or_create_tags(wp_url, headers, tags)
+        tag_ids = get_or_create_tags(site_key, tags)
         if tag_ids:
             payload["tags"] = tag_ids
 
@@ -236,17 +273,12 @@ def publish_post(site_key: str, blog_data: dict, featured_media_id: int = None,
     site_config = SITES[site_key]
     category_names = blog_data.get("categories") or site_config.get("default_categories", [])
     if category_names:
-        cat_ids = get_or_create_categories(wp_url, headers, category_names)
+        cat_ids = get_or_create_categories(site_key, category_names)
         if cat_ids:
             payload["categories"] = cat_ids
 
     try:
-        response = requests.post(
-            f"{wp_url}/wp-json/wp/v2/posts",
-            headers=headers,
-            json=payload,
-            timeout=30
-        )
+        response = wp_request("post", site_key, "/wp-json/wp/v2/posts", json=payload, timeout=30)
         response.raise_for_status()
         post = response.json()
         print(f"[WP] Post creado como {estado}: {post['link']}")
@@ -268,11 +300,9 @@ def get_used_photo_ids(site_key: str, per_page: int = 100) -> set[str]:
     persistir nada aparte (importa porque Railway reinicia sin estado).
     """
     import re
-    wp_url, headers = get_wp_headers(site_key)
     try:
-        r = requests.get(
-            f"{wp_url}/wp-json/wp/v2/media",
-            headers=headers,
+        r = wp_request(
+            "get", site_key, "/wp-json/wp/v2/media",
             params={"per_page": per_page, "search": "blog-", "_fields": "source_url",
                     "orderby": "date", "order": "desc"},
             timeout=20,
@@ -295,10 +325,9 @@ def get_used_photo_ids(site_key: str, per_page: int = 100) -> set[str]:
 
 def contar_posts_por_categoria(site_key: str, nombre_categoria: str) -> int:
     """Cuántas entradas publicadas tiene esa categoría (-1 si no se pudo saber)."""
-    wp_url, headers = get_wp_headers(site_key)
     try:
-        r = requests.get(f"{wp_url}/wp-json/wp/v2/categories", headers=headers,
-                         params={"search": nombre_categoria, "per_page": 20}, timeout=15)
+        r = wp_request("get", site_key, "/wp-json/wp/v2/categories",
+                       params={"search": nombre_categoria, "per_page": 20}, timeout=15)
         r.raise_for_status()
         for c in r.json():
             if c["name"].lower() == nombre_categoria.lower():
@@ -310,10 +339,9 @@ def contar_posts_por_categoria(site_key: str, nombre_categoria: str) -> int:
 
 def get_featured_media_id(site_key: str, post_id: int) -> int:
     """Relee del sitio la portada realmente asignada (0 si no tiene)."""
-    wp_url, headers = get_wp_headers(site_key)
     try:
-        r = requests.get(f"{wp_url}/wp-json/wp/v2/posts/{post_id}",
-                         headers=headers, params={"_fields": "featured_media"}, timeout=15)
+        r = wp_request("get", site_key, f"/wp-json/wp/v2/posts/{post_id}",
+                       params={"_fields": "featured_media"}, timeout=15)
         r.raise_for_status()
         return int(r.json().get("featured_media") or 0)
     except Exception as e:
@@ -325,11 +353,9 @@ def get_posts_list(site_key: str, per_page: int = 100) -> list[dict]:
     """
     Retorna lista de posts publicados: id, title, url.
     """
-    wp_url, headers = get_wp_headers(site_key)
     try:
-        response = requests.get(
-            f"{wp_url}/wp-json/wp/v2/posts",
-            headers=headers,
+        response = wp_request(
+            "get", site_key, "/wp-json/wp/v2/posts",
             params={"per_page": per_page, "orderby": "date", "order": "desc", "status": "publish"},
             timeout=15
         )
@@ -348,11 +374,9 @@ def get_post(site_key: str, post_id: int) -> dict | None:
     Obtiene un post existente de WordPress por ID.
     Retorna el post raw o None si falla.
     """
-    wp_url, headers = get_wp_headers(site_key)
     try:
-        response = requests.get(
-            f"{wp_url}/wp-json/wp/v2/posts/{post_id}",
-            headers=headers,
+        response = wp_request(
+            "get", site_key, f"/wp-json/wp/v2/posts/{post_id}",
             params={"context": "edit"},
             timeout=15
         )
@@ -369,11 +393,9 @@ def get_tag_names(site_key: str, tag_ids: list[int]) -> list[str]:
     """
     if not tag_ids:
         return []
-    wp_url, headers = get_wp_headers(site_key)
     try:
-        response = requests.get(
-            f"{wp_url}/wp-json/wp/v2/tags",
-            headers=headers,
+        response = wp_request(
+            "get", site_key, "/wp-json/wp/v2/tags",
             params={"include": ",".join(map(str, tag_ids)), "per_page": 100},
             timeout=10
         )
@@ -388,11 +410,9 @@ def set_featured_image(site_key: str, post_id: int, featured_media_id: int) -> d
     """
     Actualiza solo la imagen destacada de un post existente.
     """
-    wp_url, headers = get_wp_headers(site_key)
     try:
-        response = requests.put(
-            f"{wp_url}/wp-json/wp/v2/posts/{post_id}",
-            headers=headers,
+        response = wp_request(
+            "put", site_key, f"/wp-json/wp/v2/posts/{post_id}",
             json={"featured_media": featured_media_id},
             timeout=30
         )
@@ -412,8 +432,6 @@ def update_post(site_key: str, post_id: int, blog_data: dict, featured_media_id:
     Actualiza un post existente en WordPress con los campos proporcionados.
     Retorna el post actualizado o None si falla.
     """
-    wp_url, headers = get_wp_headers(site_key)
-
     payload = {
         "title": blog_data["title"],
         "content": blog_data.get("content", ""),
@@ -425,17 +443,13 @@ def update_post(site_key: str, post_id: int, blog_data: dict, featured_media_id:
 
     tags = blog_data.get("tags", [])
     if tags:
-        tag_ids = get_or_create_tags(wp_url, headers, tags)
+        tag_ids = get_or_create_tags(site_key, tags)
         if tag_ids:
             payload["tags"] = tag_ids
 
     try:
-        response = requests.put(
-            f"{wp_url}/wp-json/wp/v2/posts/{post_id}",
-            headers=headers,
-            json=payload,
-            timeout=30
-        )
+        response = wp_request("put", site_key, f"/wp-json/wp/v2/posts/{post_id}",
+                              json=payload, timeout=30)
         response.raise_for_status()
         post = response.json()
         print(f"[WP] Post actualizado: {post['link']}")
@@ -448,30 +462,25 @@ def update_post(site_key: str, post_id: int, blog_data: dict, featured_media_id:
         return None
 
 
-def get_or_create_categories(wp_url: str, headers: dict, category_names: list[str]) -> list[int]:
+def get_or_create_categories(site_key: str, category_names: list[str]) -> list[int]:
     """
     Obtiene o crea categorías en WordPress. Retorna lista de IDs.
     """
     category_ids = []
     for name in category_names:
         try:
-            search = requests.get(
-                f"{wp_url}/wp-json/wp/v2/categories",
-                headers=headers,
-                params={"search": name, "per_page": 10},
-                timeout=10
-            )
+            search = wp_request("get", site_key, "/wp-json/wp/v2/categories",
+                                params={"search": name, "per_page": 10}, timeout=10)
             results = search.json()
+            if not isinstance(results, list):
+                print(f"[WP] Error con categoría '{name}': respuesta inesperada: {results}")
+                continue
             match = next((c for c in results if c["name"].lower() == name.lower()), None)
             if match:
                 category_ids.append(match["id"])
             else:
-                create = requests.post(
-                    f"{wp_url}/wp-json/wp/v2/categories",
-                    headers=headers,
-                    json={"name": name},
-                    timeout=10
-                )
+                create = wp_request("post", site_key, "/wp-json/wp/v2/categories",
+                                    json={"name": name}, timeout=10)
                 if create.status_code == 201:
                     category_ids.append(create.json()["id"])
         except Exception as e:
@@ -479,36 +488,31 @@ def get_or_create_categories(wp_url: str, headers: dict, category_names: list[st
     return category_ids
 
 
-def get_or_create_tags(wp_url: str, headers: dict, tag_names: list[str]) -> list[int]:
+def get_or_create_tags(site_key: str, tag_names: list[str]) -> list[int]:
     """
     Obtiene o crea tags en WordPress. Retorna lista de IDs.
     """
     tag_ids = []
-    
+
     for tag_name in tag_names:
         try:
             # Buscar si ya existe
-            search = requests.get(
-                f"{wp_url}/wp-json/wp/v2/tags",
-                headers=headers,
-                params={"search": tag_name},
-                timeout=10
-            )
+            search = wp_request("get", site_key, "/wp-json/wp/v2/tags",
+                                params={"search": tag_name}, timeout=10)
             results = search.json()
-            
+            if not isinstance(results, list):
+                print(f"[WP] Error con tag '{tag_name}': respuesta inesperada: {results}")
+                continue
+
             if results:
                 tag_ids.append(results[0]["id"])
             else:
                 # Crear nuevo tag
-                create = requests.post(
-                    f"{wp_url}/wp-json/wp/v2/tags",
-                    headers=headers,
-                    json={"name": tag_name},
-                    timeout=10
-                )
+                create = wp_request("post", site_key, "/wp-json/wp/v2/tags",
+                                    json={"name": tag_name}, timeout=10)
                 if create.status_code == 201:
                     tag_ids.append(create.json()["id"])
         except Exception as e:
             print(f"[WP] Error con tag '{tag_name}': {e}")
-    
+
     return tag_ids
