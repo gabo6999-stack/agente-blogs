@@ -25,9 +25,10 @@ from tools.images import get_unsplash_image, upload_image_to_wordpress, revisar_
 from tools.wordpress import (publish_post, get_wp_headers, get_post, get_tag_names, update_post,
                              set_featured_image, get_posts_list, update_author_display_name,
                              inject_hide_author_css, get_used_photo_ids, get_featured_media_id,
-                             contar_posts_por_categoria, get_titulos_sitio)
+                             contar_posts_por_categoria, get_titulos_sitio, set_post_status)
 from tools.revisor_ventas import revisa_articulo
 from tools.compuerta_dosis import revisa_dosis
+from tools.compuerta_citas import revisa_citas, hallazgos as hallazgos_citas
 from tools.arcade import publish_post as arcade_publish_post
 from tools.seo_guardas import audita_onpage
 from tools.logger import log_post, get_used_topics, get_history, get_last_post
@@ -258,7 +259,8 @@ def motivo_de_rechazo(site_key: str, blog_data: dict) -> str:
     """Primera compuerta de contenido que el artículo no pasa ("" = pasa todas).
 
     Mismas reglas que publish_post, pero antes de subir la portada y con un
-    mensaje para el log. Ver tools/revisor_ventas.py y tools/compuerta_dosis.py.
+    mensaje para el log. Ver tools/revisor_ventas.py, tools/compuerta_dosis.py y
+    tools/compuerta_citas.py (esta última consulta NCBI, con caché).
     """
     site = SITES[site_key]
     if site.get("sales_gate"):
@@ -269,6 +271,12 @@ def motivo_de_rechazo(site_key: str, blog_data: dict) -> str:
         h = revisa_dosis(blog_data, site["dose_gate"])
         if h:
             return f"pautas de dosis ({len(h)}): " + " | ".join(h[:3])
+    if site.get("citation_gate"):
+        tema = blog_data.get("rank_math_focus_keyword") or blog_data.get("title", "")
+        res = revisa_citas(blog_data, tema, min_fuentes=site.get("min_fuentes", 2))
+        if not res["publicable"]:
+            h = hallazgos_citas(res)
+            return f"citas ({len(h)}): " + " | ".join(h[:3])
     return ""
 
 
@@ -467,7 +475,30 @@ def run_pipeline(site_key: str, topic: str = None, country: str = None):
                                f"{', '.join(rev['criticos'])}"[:180],
                         url=post.get("link", ""))
                     agent_status["last_error"] = f"on-page crítico: {', '.join(rev['criticos'])}"
-                if not publicado:
+                # 10. Las compuertas de contenido, otra vez, sobre lo que QUEDÓ en el
+                # sitio: el agente SEO reescribe el cuerpo y añade 3-5 enlaces a
+                # PubMed (las citas de Parkinson y memoria espacial para
+                # «longevidad» entraron así). Si ya no pasa, se regresa a borrador.
+                motivo = motivo_de_rechazo(site_key, {
+                    "content": cuerpo,
+                    "title": (final.get("title", {}) or {}).get("raw")
+                             or (final.get("title", {}) or {}).get("rendered", ""),
+                    "excerpt": blog_data.get("excerpt", ""),
+                    "rank_math_title": blog_data.get("rank_math_title", ""),
+                    "rank_math_description": blog_data.get("rank_math_description", ""),
+                    "rank_math_focus_keyword": blog_data.get("rank_math_focus_keyword", ""),
+                })
+                regresado = False
+                if motivo:
+                    print(f"[Pipeline] ⛔ Tras el agente SEO ya no pasa las compuertas: {motivo}")
+                    if publicado and set_post_status(site_key, post["id"], "draft"):
+                        publicado, regresado = False, True
+                        print("[Pipeline] Regresado a BORRADOR")
+                    notify_nexus(action="Blog regresado a borrador: no pasa las compuertas de contenido",
+                                 detail=f"{post.get('title', {}).get('rendered', '') or topic}: {motivo}"[:180],
+                                 url=post.get("link", ""))
+                    agent_status["last_error"] = motivo[:300]
+                if not publicado and not regresado:
                     notify_nexus(
                         action="Blog quedó en borrador (el agente SEO no lo promovió)",
                         detail=(post.get("title", {}).get("rendered", "") or topic)[:180],

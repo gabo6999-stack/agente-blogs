@@ -432,6 +432,17 @@ def contar_posts_por_categoria(site_key: str, nombre_categoria: str) -> int:
     return -1
 
 
+def set_post_status(site_key: str, post_id: int, status: str) -> bool:
+    """Cambia solo el estado de un post (p. ej. regresarlo a borrador)."""
+    try:
+        r = wp_request("post", site_key, f"/wp-json/wp/v2/posts/{post_id}",
+                       json={"status": status}, timeout=20)
+        return r.status_code == 200 and r.json().get("status") == status
+    except Exception as e:
+        print(f"[WP] No pude cambiar el estado de {post_id} a {status}: {e}")
+        return False
+
+
 def get_featured_media_id(site_key: str, post_id: int) -> int:
     """Relee del sitio la portada realmente asignada (0 si no tiene)."""
     try:

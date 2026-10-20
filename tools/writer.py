@@ -322,6 +322,38 @@ def _quita_pautas_de_dosis(client, site: dict, blog_data: dict, intentos: int = 
         "pautas de dosis", intentos)
 
 
+def _corrige_citas(client, site: dict, blog_data: dict, tema: str, intentos: int = 2) -> dict:
+    """Sitios con citation_gate: cada PMID/PMC/DOI existe y respalda su frase.
+
+    En cada vuelta se verifica contra NCBI (con caché), se DESENLAZAN las citas
+    que no existen o no corresponden y se pide reescribir o eliminar esas
+    afirmaciones y las cifras clínicas que se quedaron sin fuente. Si NCBI no
+    responde no se reescribe nada: el pipeline rechaza la corrida y se reintenta
+    en la siguiente (un fallo transitorio no es una cita mala).
+    """
+    from tools.compuerta_citas import revisa_citas, quita_citas, hallazgos
+    minimo = site.get("min_fuentes", 2)
+
+    def revisar(bd):
+        res = revisa_citas(bd, tema, min_fuentes=minimo)
+        if res["invalidas"]:
+            bd["content"] = quita_citas(bd.get("content", ""), [c["href"] for c in res["invalidas"]])
+        if res["no_verificables"]:
+            return []  # nada que el modelo pueda arreglar; decide el pipeline
+        return hallazgos(res)
+
+    return _corrige_frases(
+        client, blog_data, revisar,
+        "Este artículo tenía citas que no existen o que no tratan lo que afirma la frase que las "
+        "usa (ya se quitaron los enlaces). Reescribe cada afirmación afectada para que no dependa de "
+        "esa fuente, o elimínala. Si añades una fuente, que sea un enlace de PubMed "
+        "(https://pubmed.ncbi.nlm.nih.gov/PMID/) a un estudio real que trate EXACTAMENTE esa "
+        "afirmación (se verificará contra PubMed); si no estás seguro, quita la cifra en vez de "
+        "inventar una fuente. Toda cifra clínica (%, p, n, IC) debe quedar en un párrafo con su "
+        "fuente enlazada.",
+        "citas", intentos)
+
+
 def _recorta_enlaces_internos(html: str, dominio: str, tope: int, conservar=()) -> str:
     """Deja solo los primeros `tope` enlaces internos; el resto conserva su texto.
 
@@ -448,6 +480,15 @@ Responde únicamente con el JSON solicitado."""
         blog_data = _limpia_lenguaje_de_venta(client, site, blog_data)
     if site.get("dose_gate"):
         blog_data = _quita_pautas_de_dosis(client, site, blog_data)
+    if site.get("citation_gate"):
+        tema = blog_data.get("rank_math_focus_keyword") or blog_data.get("title") or topic
+        blog_data = _corrige_citas(client, site, blog_data, tema)
+        # La reescritura de citas puede reintroducir lo que las otras quitaron;
+        # si el texto está limpio, estas dos vuelven sin llamar al modelo.
+        if site.get("sales_gate"):
+            blog_data = _limpia_lenguaje_de_venta(client, site, blog_data, intentos=1)
+        if site.get("dose_gate"):
+            blog_data = _quita_pautas_de_dosis(client, site, blog_data, intentos=1)
 
     tope = site.get("max_internal_links")
     if tope:

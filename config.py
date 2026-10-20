@@ -41,6 +41,10 @@ SITES = {
         # Auditoría SEO oct-2026: ninguna pauta de uso en el blog de la tienda,
         # ni citada (ver tools/compuerta_dosis.py).
         "dose_gate": "estricto",
+        # Cada PMID/PMC/DOI existe en NCBI y trata lo que afirma su frase (ver
+        # tools/compuerta_citas.py). Mínimo de fuentes válidas por artículo.
+        "citation_gate": True,
+        "min_fuentes": 2,
     },
     # Antes se llamaba "grupoptm" y apuntaba a grupoptm.com. PTM se rebrandeó a
     # Telenzia, así que la clave y el sitio se movieron a telenzia.com. Las
@@ -245,6 +249,8 @@ SITES = {
         # Una cifra de dosis solo si la misma oración la atribuye a un estudio
         # citado ("en el ensayo X, los participantes recibieron...").
         "dose_gate": "citado",
+        "citation_gate": True,
+        "min_fuentes": 2,
         "topic_blocklist": ["dog chow", "purina", "croqueta", "perro", "perros",
                             "gato", "gatos", "mascota", "mascotas"],
         # El contenedor corre en UTC: 15:00 UTC = 9:00 en el centro de México.
