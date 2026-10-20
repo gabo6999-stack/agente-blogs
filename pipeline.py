@@ -27,6 +27,7 @@ from tools.wordpress import (publish_post, get_wp_headers, get_post, get_tag_nam
                              inject_hide_author_css, get_used_photo_ids, get_featured_media_id,
                              contar_posts_por_categoria, get_titulos_sitio)
 from tools.revisor_ventas import revisa_articulo
+from tools.compuerta_dosis import revisa_dosis
 from tools.arcade import publish_post as arcade_publish_post
 from tools.seo_guardas import audita_onpage
 from tools.logger import log_post, get_used_topics, get_history, get_last_post
@@ -253,6 +254,24 @@ def conseguir_portada(site_key: str, blog_data: dict, topic: str):
     return media_id, image_data
 
 
+def motivo_de_rechazo(site_key: str, blog_data: dict) -> str:
+    """Primera compuerta de contenido que el artículo no pasa ("" = pasa todas).
+
+    Mismas reglas que publish_post, pero antes de subir la portada y con un
+    mensaje para el log. Ver tools/revisor_ventas.py y tools/compuerta_dosis.py.
+    """
+    site = SITES[site_key]
+    if site.get("sales_gate"):
+        h = revisa_articulo(blog_data, site.get("forbidden_hosts", []))
+        if h:
+            return f"lenguaje de venta ({len(h)}): " + " | ".join(h[:3])
+    if site.get("dose_gate"):
+        h = revisa_dosis(blog_data, site["dose_gate"])
+        if h:
+            return f"pautas de dosis ({len(h)}): " + " | ".join(h[:3])
+    return ""
+
+
 def run_pipeline(site_key: str, topic: str = None, country: str = None):
     """
     Pipeline completo: tendencias → escritura → imágenes → publicación
@@ -323,19 +342,18 @@ def run_pipeline(site_key: str, topic: str = None, country: str = None):
         # 2. Generar blog
         blog_data = generate_blog(site_key, topic)
 
-        # 2-bis. Compuerta de ventas (pyscom). El writer ya intentó limpiar las
-        # frases; si quedó algo, no se gasta portada ni se toca el sitio.
-        # (publish_post vuelve a revisar el HTML final, ya con índice e imagen.)
-        if SITES[site_key].get("sales_gate"):
-            hallazgos = revisa_articulo(blog_data, SITES[site_key].get("forbidden_hosts", []))
-            if hallazgos:
-                msg = f"lenguaje de venta ({len(hallazgos)}): " + " | ".join(hallazgos[:3])
-                print(f"[Pipeline] ⛔ No se publica: {msg}")
-                log_post(site_key, topic, None, success=False, error=msg[:500])
-                notify_nexus(action="Blog descartado por lenguaje de venta",
-                             detail=f"{blog_data.get('title', topic)}: {msg}"[:180])
-                agent_status["last_error"] = msg[:300]
-                return
+        # 2-bis. Compuertas de contenido (ventas en pyscom, dosis en los dos).
+        # El writer ya intentó corregir las frases; si quedó algo, no se gasta
+        # portada ni se toca el sitio. (publish_post vuelve a revisar el HTML
+        # final, ya con índice e imagen.)
+        motivo = motivo_de_rechazo(site_key, blog_data)
+        if motivo:
+            print(f"[Pipeline] ⛔ No se publica: {motivo}")
+            log_post(site_key, topic, None, success=False, error=motivo[:500])
+            notify_nexus(action="Blog descartado por las compuertas de contenido",
+                         detail=f"{blog_data.get('title', topic)}: {motivo}"[:180])
+            agent_status["last_error"] = motivo[:300]
+            return
 
         platform = SITES[site_key].get("platform", "wordpress")
 

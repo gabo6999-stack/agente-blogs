@@ -38,6 +38,9 @@ SITES = {
         # "longevidad" y se publicó el 3-oct (post 2924) tras 6 corridas.
         "topic_blocklist": ["dog chow", "purina", "croqueta", "perro", "perros",
                             "gato", "gatos", "mascota", "mascotas"],
+        # Auditoría SEO oct-2026: ninguna pauta de uso en el blog de la tienda,
+        # ni citada (ver tools/compuerta_dosis.py).
+        "dose_gate": "estricto",
     },
     # Antes se llamaba "grupoptm" y apuntaba a grupoptm.com. PTM se rebrandeó a
     # Telenzia, así que la clave y el sitio se movieron a telenzia.com. Las
@@ -239,6 +242,9 @@ SITES = {
         # se desenvuelven (queda el texto) y la mención en texto rechaza.
         "forbidden_hosts": ["peptidosysuplementos.mx"],
         "sales_gate": True,
+        # Una cifra de dosis solo si la misma oración la atribuye a un estudio
+        # citado ("en el ensayo X, los participantes recibieron...").
+        "dose_gate": "citado",
         "topic_blocklist": ["dog chow", "purina", "croqueta", "perro", "perros",
                             "gato", "gatos", "mascota", "mascotas"],
         # El contenedor corre en UTC: 15:00 UTC = 9:00 en el centro de México.

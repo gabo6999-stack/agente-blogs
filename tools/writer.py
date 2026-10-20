@@ -239,38 +239,30 @@ def _expand_if_thin_agency(client, site: dict, blog_data: dict, intentos: int = 
     return mejor
 
 
-def _limpia_lenguaje_de_venta(client, site: dict, blog_data: dict, intentos: int = 2) -> dict:
-    """Sitios con sales_gate: reescribe SOLO las frases con lenguaje de venta.
+def _corrige_frases(client, blog_data: dict, revisar, instruccion: str, etiqueta: str,
+                    intentos: int = 2, antes=None) -> dict:
+    """Reescribe SOLO las frases que una compuerta señala, hasta `intentos` veces.
 
-    El redactor rompe las reglas de vez en cuando aunque el prompt las prohíba
-    («cómpralo», «envío», «proveedor» por «profesional de la salud»). En vez de
-    tirar un artículo entero de ~$0.30 por una palabra, se le devuelve la lista
-    exacta de hallazgos para que reescriba esas frases. Si tras `intentos`
-    sigue habiendo hallazgos, se devuelve tal cual: la compuerta de
-    wordpress.pasa_compuerta_ventas lo rechazará y no se publica.
+    `revisar(blog_data) -> [hallazgos]`. `antes(blog_data)` repara lo que se
+    puede reparar sin el modelo (p. ej. desenvolver enlaces) en cada vuelta.
+    En vez de tirar un artículo entero (~$0.30) por una frase, se le devuelve
+    al modelo la lista exacta. Si tras los intentos sigue habiendo hallazgos se
+    devuelve tal cual: la compuerta del pipeline/publish_post lo rechazará.
     """
-    from tools.revisor_ventas import revisa_articulo, quita_enlaces_a_hosts
     NL = chr(10)
-    hosts = site.get("forbidden_hosts", [])
-    blog_data["content"], _ = quita_enlaces_a_hosts(blog_data.get("content", ""), hosts)
     for intento in range(1, intentos + 1):
-        hallazgos = revisa_articulo(blog_data, hosts)
+        if antes:
+            antes(blog_data)
+        hallazgos = revisar(blog_data)
         if not hallazgos:
             return blog_data
-        print(f"[Writer] {len(hallazgos)} hallazgo(s) de venta; reescribiendo esas frases "
+        print(f"[Writer] {len(hallazgos)} hallazgo(s) de {etiqueta}; reescribiendo esas frases "
               f"(intento {intento}/{intentos})...")
         prompt = (
-            "Este artículo es para un sitio INFORMATIVO que no vende nada. Tiene frases con lenguaje "
-            "de venta o menciones prohibidas. Reescribe SOLO esas frases de forma neutral y científica "
-            "(o elimínalas si no aportan), sin tocar el resto, y sin usar NINGUNA de estas palabras: "
-            "precio, costo, comprar, vender, venta, adquirir, pedido, envío, pago, tienda, catálogo, "
-            "existencias, stock, oferta, descuento, promoción, cupón, cliente, proveedor (di 'profesional "
-            "de la salud'), distribuidor, factura, lote, COA, certificado de análisis, farmacia, dopaje, "
-            "WADA. Nunca menciones otra web ni tienda. Hallazgos:" + NL + "- "
-            + (NL + "- ").join(hallazgos[:40]) + NL + NL
-            + "Responde ÚNICAMENTE con el MISMO JSON (mismos campos) corregido." + NL + NL
-            + "JSON ACTUAL:" + NL
-            + json.dumps(blog_data, ensure_ascii=False)
+            instruccion + NL + "Hallazgos:" + NL + "- " + (NL + "- ").join(hallazgos[:40]) + NL + NL
+            + "Reescribe SOLO esas frases (o elimínalas si no aportan), sin tocar el resto del "
+            + "artículo. Responde ÚNICAMENTE con el MISMO JSON (mismos campos) corregido." + NL + NL
+            + "JSON ACTUAL:" + NL + json.dumps(blog_data, ensure_ascii=False)
         )
         try:
             resp = client.messages.create(model="claude-sonnet-4-6", max_tokens=16000,
@@ -279,14 +271,55 @@ def _limpia_lenguaje_de_venta(client, site: dict, blog_data: dict, intentos: int
             corregido = _parse_json(texto)
             if corregido.get("content"):
                 corregido.setdefault("slug", blog_data.get("slug", ""))
-                corregido["content"], _ = quita_enlaces_a_hosts(corregido["content"], hosts)
                 blog_data = corregido
         except Exception as e:
-            print(f"[Writer] La limpieza de lenguaje de venta falló ({e}).")
-    restantes = revisa_articulo(blog_data, hosts)
+            print(f"[Writer] La corrección de {etiqueta} falló ({e}).")
+    if antes:
+        antes(blog_data)
+    restantes = revisar(blog_data)
     if restantes:
-        print(f"[Writer] ⚠️ Siguen {len(restantes)} hallazgo(s) de venta: no se publicará")
+        print(f"[Writer] ⚠️ Siguen {len(restantes)} hallazgo(s) de {etiqueta}: no se publicará")
     return blog_data
+
+
+def _limpia_lenguaje_de_venta(client, site: dict, blog_data: dict, intentos: int = 2) -> dict:
+    """Sitios con sales_gate: fuera el lenguaje de venta y los enlaces a la tienda."""
+    from tools.revisor_ventas import revisa_articulo, quita_enlaces_a_hosts
+    hosts = site.get("forbidden_hosts", [])
+
+    def antes(bd):
+        bd["content"], _ = quita_enlaces_a_hosts(bd.get("content", ""), hosts)
+
+    return _corrige_frases(
+        client, blog_data, lambda bd: revisa_articulo(bd, hosts),
+        "Este artículo es para un sitio INFORMATIVO que no vende nada. Tiene frases con lenguaje "
+        "de venta o menciones prohibidas. Reescríbelas de forma neutral y científica sin usar "
+        "NINGUNA de estas palabras: precio, costo, comprar, vender, venta, adquirir, pedido, envío, "
+        "pago, tienda, catálogo, existencias, stock, oferta, descuento, promoción, cupón, cliente, "
+        "proveedor (di 'profesional de la salud'), distribuidor, factura, lote, COA, certificado de "
+        "análisis, farmacia, dopaje, WADA. Nunca menciones otra web ni tienda.",
+        "lenguaje de venta", intentos, antes=antes)
+
+
+def _quita_pautas_de_dosis(client, site: dict, blog_data: dict, intentos: int = 2) -> dict:
+    """Sitios con dose_gate: ninguna pauta de uso para personas (ver compuerta_dosis)."""
+    from tools.compuerta_dosis import revisa_dosis
+    modo = site.get("dose_gate")
+    if modo == "citado":
+        regla = ("Solo puedes conservar una cifra si la MISMA oración la atribuye a un estudio "
+                 "concreto con su enlace a la fuente, en pasado y como dato del estudio (\"en el "
+                 "ensayo X, los participantes recibieron...\"). Si no, quita la cifra. Nada de tablas "
+                 "de dosis.")
+    else:
+        regla = ("En este sitio no puede aparecer NINGUNA cifra de dosis, ni siquiera atribuida a "
+                 "un estudio: describe lo que se investigó de forma cualitativa. Nada de tablas de dosis.")
+    return _corrige_frases(
+        client, blog_data, lambda bd: revisa_dosis(bd, modo),
+        "Este artículo contiene pautas de uso para personas (cantidades en mg/mcg/UI/mL junto a "
+        "vía, frecuencia, horario, ciclos o protocolos, o instrucciones de cómo aplicarse algo). "
+        "Un artículo de blog NO da indicaciones de uso. " + regla + " Recuerda que cualquier "
+        "decisión de salud se toma con un médico.",
+        "pautas de dosis", intentos)
 
 
 def _recorta_enlaces_internos(html: str, dominio: str, tope: int, conservar=()) -> str:
@@ -378,7 +411,8 @@ Responde únicamente con el JSON solicitado."""
     else:
         fichas_block = fetch_product_map(site_key)
         system_prompt = get_system_prompt(site["niche"], site["post_length"], year,
-                                          fichas_block=fichas_block)
+                                          fichas_block=fichas_block,
+                                          sin_pautas=bool(site.get("dose_gate")))
         user_message = f"""Escribe un artículo de blog completo y optimizado para SEO sobre: "{topic}"
 
 AÑO ACTUAL: {year}. Si incluyes un año por frescura/SEO (título o texto), usa {year}, nunca uno pasado. Solo conserva años reales al citar estudios, ensayos o eventos concretos.
@@ -412,6 +446,8 @@ Responde únicamente con el JSON solicitado."""
 
     if site.get("sales_gate"):
         blog_data = _limpia_lenguaje_de_venta(client, site, blog_data)
+    if site.get("dose_gate"):
+        blog_data = _quita_pautas_de_dosis(client, site, blog_data)
 
     tope = site.get("max_internal_links")
     if tope:

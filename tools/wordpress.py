@@ -218,6 +218,23 @@ def pasa_compuerta_ventas(site_key: str, blog_data: dict) -> bool:
     return True
 
 
+def pasa_compuerta_dosis(site_key: str, blog_data: dict) -> bool:
+    """Sitios con dose_gate: ninguna pauta de uso o no se escribe (ver
+    tools/compuerta_dosis.py). Sin red: se puede llamar en cada escritura."""
+    modo = SITES[site_key].get("dose_gate")
+    if not modo:
+        return True
+    from tools.compuerta_dosis import revisa_dosis
+    hallazgos = revisa_dosis(blog_data, modo)
+    if hallazgos:
+        print(f"[Dosis] ⛔ El artículo NO se escribe en {site_key}: "
+              f"{len(hallazgos)} pauta(s) de uso")
+        for h in hallazgos[:20]:
+            print(f"[Dosis]      · {h}")
+        return False
+    return True
+
+
 def get_titulos_sitio(site_key: str) -> list[str]:
     """Títulos de TODO lo que tiene un sitio WordPress: posts (publicados,
     borradores y programados, con auth), monografías y páginas (públicos).
@@ -313,6 +330,8 @@ def publish_post(site_key: str, blog_data: dict, featured_media_id: int = None,
         print("[WP] El articulo NO se publica: no paso las guardas de contenido")
         return None
     if not pasa_compuerta_ventas(site_key, blog_data):
+        return None
+    if not pasa_compuerta_dosis(site_key, blog_data):
         return None
 
     content = blog_data.get("content", "")
@@ -509,6 +528,8 @@ def update_post(site_key: str, post_id: int, blog_data: dict, featured_media_id:
     Retorna el post actualizado o None si falla.
     """
     if not pasa_compuerta_ventas(site_key, blog_data):
+        return None
+    if not pasa_compuerta_dosis(site_key, blog_data):
         return None
 
     payload = {

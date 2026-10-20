@@ -1,5 +1,6 @@
 def get_system_prompt(niche: str, word_count: int, year: int = None,
-                     fichas_block: str = "") -> str:
+                     fichas_block: str = "", sin_pautas: bool = False,
+                     keywords_con_dueno: str = "") -> str:
     """fichas_block: mapa {compuesto -> URL de ficha} que el pipeline carga desde
     el agente SEO (/product-map) ANTES de generar. Sin el mapa, el redactor
     inventa URLs de producto; con el mapa, el bloque de enlaces internos pasa a
@@ -7,6 +8,26 @@ def get_system_prompt(niche: str, word_count: int, year: int = None,
     from datetime import datetime
     year = year or datetime.now().year
     enlaces_internos = _bloque_enlaces_internos(fichas_block)
+    # sin_pautas (sitios con dose_gate, p. ej. PYS): la auditoría SEO de oct-2026
+    # encontró pautas de uso en el blog («MOTS-c 5-10 mg subcutáneo, 3 veces por
+    # semana»). El prompt antes PEDÍA dosis y tablas de dosis.
+    if sin_pautas:
+        datos = ("- Incluye datos concretos, porcentajes y evidencia de estudios reales\n"
+                 "- PROHIBIDO dar pautas de uso: ninguna cantidad (mg, mcg, UI, mL) junto a vía, "
+                 "frecuencia, horario, ciclos o protocolos, ni instrucciones de cómo aplicarse algo, "
+                 "ni siquiera atribuidas a un estudio. Describe lo investigado de forma cualitativa y "
+                 "recuerda que cualquier decisión de salud se toma con un médico.")
+        tabla = "3. Al menos una tabla HTML (<table>) con datos comparativos (nunca de dosis)"
+    else:
+        datos = "- Incluye datos concretos, dosis, porcentajes y evidencia de estudios reales"
+        tabla = "3. Al menos una tabla HTML (<table>) con datos comparativos o de dosis"
+    dueno = ""
+    if keywords_con_dueno:
+        dueno = ("\nKEYWORDS CON DUEÑO — la focus keyword NUNCA puede ser solo el nombre de uno de "
+                 "estos compuestos (con o sin 'qué es', 'para qué sirve', 'beneficios', 'dosis', "
+                 "'precio' o 'México'): esa consulta ya la atiende su ficha o su monografía. Elige "
+                 "una consulta informativa de cola larga con un tema propio.\n"
+                 + keywords_con_dueno + "\n")
     return f"""Eres un experto redactor de contenido SEO y divulgación científica especializado en {niche}.
 
 Tu tarea es escribir artículos de blog completos, profundos y optimizados para SEO en español mexicano.
@@ -15,7 +36,7 @@ INSTRUCCIONES DE CONTENIDO:
 - Longitud MÍNIMA: {word_count} palabras. Apunta a {word_count + 500} palabras.
 - Idioma: español (México)
 - Tono: profesional pero accesible, científico pero entendible para el público general
-- Incluye datos concretos, dosis, porcentajes y evidencia de estudios reales
+{datos}
 - Usa terminología científica correcta y explícala cuando sea necesario
 
 AÑO ACTUAL Y FECHAS ({year}) — MUY IMPORTANTE:
@@ -26,7 +47,7 @@ AÑO ACTUAL Y FECHAS ({year}) — MUY IMPORTANTE:
 ESTRUCTURA OBLIGATORIA DEL ARTÍCULO:
 1. Introducción (2-3 párrafos) — engancha al lector, plantea el problema y la solución
 2. 5-7 secciones con subtítulos <h2> y al menos 2 subsecciones <h3> cada una
-3. Al menos una tabla HTML (<table>) con datos comparativos o de dosis
+{tabla}
 4. Conclusión con call-to-action claro
 5. FAQ — 4 preguntas frecuentes al final con respuestas detalladas
 
@@ -39,7 +60,7 @@ PROHIBIDO, sin excepción: nada sobre dopaje. No menciones ni enlaces a la WADA/
 de Prohibiciones, controles antidopaje ni métodos de detección en competición.
 Formato: <a href="URL_REAL" target="_blank" rel="noopener noreferrer">texto descriptivo</a>
 NO inventes URLs — usa solo URLs que sepas que existen.
-{enlaces_internos}
+{enlaces_internos}{dueno}
 FORMATO DE RESPUESTA:
 Responde ÚNICAMENTE con un JSON válido con esta estructura exacta:
 {{
@@ -398,8 +419,10 @@ válidas son las de la lista de ENLACES INTERNOS.
 detección en competición.
 4. NUNCA escribas la palabra "farmacia" en ninguna forma.
 5. No des indicaciones personales de uso. Si hablas de dosis, son SIEMPRE las que se usaron en un \
-estudio concreto, con su fuente enlazada, dichas como dato del estudio ("en el ensayo X se \
-administraron..."), nunca como recomendación. Cualquier decisión de salud se toma con un médico.
+estudio concreto, en la MISMA oración que nombra el estudio y enlaza su fuente, dichas en pasado \
+como dato del estudio ("en el ensayo X, los participantes recibieron..."), nunca como \
+recomendación ni en imperativo. Nunca pongas dosis en una tabla. Cualquier decisión de salud se \
+toma con un médico.
 6. No escribas avisos legales ni "fines de investigación": el sitio añade su aviso solo.
 
 INSTRUCCIONES DE CONTENIDO:
