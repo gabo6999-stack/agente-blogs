@@ -19,13 +19,14 @@ import uvicorn
 from pydantic import BaseModel
 
 from config import SITES
-from tools.trends import pick_topic, TemasAgotados
+from tools.trends import pick_topic, TemasAgotados, es_tema_bloqueado
 from tools.writer import generate_blog, edit_blog, contar_palabras, piso_de_palabras
 from tools.images import get_unsplash_image, upload_image_to_wordpress, revisar_foto_con_vision
 from tools.wordpress import (publish_post, get_wp_headers, get_post, get_tag_names, update_post,
                              set_featured_image, get_posts_list, update_author_display_name,
                              inject_hide_author_css, get_used_photo_ids, get_featured_media_id,
-                             contar_posts_por_categoria)
+                             contar_posts_por_categoria, get_titulos_sitio)
+from tools.revisor_ventas import revisa_articulo
 from tools.arcade import publish_post as arcade_publish_post
 from tools.seo_guardas import audita_onpage
 from tools.logger import log_post, get_used_topics, get_history, get_last_post
@@ -232,7 +233,7 @@ def conseguir_portada(site_key: str, blog_data: dict, topic: str):
     aceptar = None
     if site_cfg.get("image_vision_check"):
         titulo = blog_data.get("title", topic)
-        criterio = f"blog sobre {site_cfg.get('niche', '')}"
+        criterio = site_cfg.get("image_criterio") or f"blog sobre {site_cfg.get('niche', '')}"
         aceptar = lambda photo: revisar_foto_con_vision(photo, titulo, criterio)
 
     image_data = get_unsplash_image(consultas[0], avoid_ids=usados,
@@ -283,6 +284,10 @@ def run_pipeline(site_key: str, topic: str = None, country: str = None):
             usados = get_used_topics(site_key)
             if SITES[site_key].get("platform", "wordpress") == "wordpress":
                 usados += [p["title"] for p in get_posts_list(site_key) if p.get("title")]
+            # Sitio hermano (pyscom): lo que ya cubre el otro sitio tampoco se
+            # repite, o los dos compiten por la misma consulta.
+            for otro in SITES[site_key].get("exclude_topics_from_sites", []):
+                usados += get_titulos_sitio(otro)
             try:
                 topic = pick_topic(site_key, usados, country=country)
             except TemasAgotados as e:
@@ -292,6 +297,15 @@ def run_pipeline(site_key: str, topic: str = None, country: str = None):
                 agent_status["last_error"] = str(e)
                 return
         print(f"[Pipeline] Tema seleccionado: {topic}")
+
+        # 1a. Tema fuera de nicho o, en un sitio informativo, con intención de
+        # compra. Aplica también a los temas encolados o pedidos a mano.
+        if es_tema_bloqueado(site_key, topic):
+            msg = "tema de venta o fuera de nicho para este sitio"
+            print(f"[Pipeline] ⛔ No se escribe el artículo: {msg} ({topic})")
+            log_post(site_key, topic, None, success=False, error=msg)
+            agent_status["last_error"] = msg
+            return
 
         # 1b. Ruteo por intención: lo transaccional NO es del blog, es de la ficha
         ruta = route_topic(site_key, topic)
@@ -308,6 +322,20 @@ def run_pipeline(site_key: str, topic: str = None, country: str = None):
 
         # 2. Generar blog
         blog_data = generate_blog(site_key, topic)
+
+        # 2-bis. Compuerta de ventas (pyscom). El writer ya intentó limpiar las
+        # frases; si quedó algo, no se gasta portada ni se toca el sitio.
+        # (publish_post vuelve a revisar el HTML final, ya con índice e imagen.)
+        if SITES[site_key].get("sales_gate"):
+            hallazgos = revisa_articulo(blog_data, SITES[site_key].get("forbidden_hosts", []))
+            if hallazgos:
+                msg = f"lenguaje de venta ({len(hallazgos)}): " + " | ".join(hallazgos[:3])
+                print(f"[Pipeline] ⛔ No se publica: {msg}")
+                log_post(site_key, topic, None, success=False, error=msg[:500])
+                notify_nexus(action="Blog descartado por lenguaje de venta",
+                             detail=f"{blog_data.get('title', topic)}: {msg}"[:180])
+                agent_status["last_error"] = msg[:300]
+                return
 
         platform = SITES[site_key].get("platform", "wordpress")
 
@@ -1044,6 +1072,8 @@ def update_schedule(req: ScheduleRequest):
 def fix_author_name():
     results = {}
     for site_key, cfg in SITES.items():
+        if cfg.get("enabled") is False:
+            continue
         site_result = {}
 
         # 1. Cambiar display_name a espacio (oculta el nombre en posts)
@@ -1068,6 +1098,10 @@ def fix_author_name():
 def schedule_sites():
     config = load_schedule_config()
     for site_key, site_cfg in SITES.items():
+        # enabled=False (p. ej. pyscom sin credenciales todavía): no se programa.
+        if site_cfg.get("enabled") is False:
+            print(f"[Scheduler] {site_key} → desactivado (faltan credenciales)")
+            continue
         # Un sitio que aún no está en schedule_config.json (recién agregado)
         # toma los días de SU config, no un lun-mar-jue-vie genérico.
         site_sched = config.get(site_key, {})

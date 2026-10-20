@@ -5,7 +5,8 @@ from datetime import datetime
 from json_repair import repair_json
 from config import ANTHROPIC_API_KEY, SITES
 from prompts.system import (get_system_prompt, get_arcade_system_prompt, get_arcade_review_system_prompt,
-                            get_agency_system_prompt, get_waldorf_system_prompt, bloque_enlaces_waldorf)
+                            get_agency_system_prompt, get_waldorf_system_prompt, bloque_enlaces_waldorf,
+                            get_informativo_system_prompt)
 from tools.arcade import list_guides as arcade_list_guides
 
 
@@ -176,6 +177,10 @@ _EXPANSION_POR_ESTILO = {
     "agency": ("de una agencia digital",
                "comparativas, checklists y datos útiles para un dueño de PyME",
                "el CTA a la agencia y la sección de FAQ. No inventes URLs ni uses fuentes médicas/científicas."),
+    "informativo": ("de divulgación científica",
+                    "mecanismos, datos de estudios con su fuente enlazada y limitaciones de la evidencia",
+                    "la frase de cierre y la sección de FAQ. No inventes URLs. PROHIBIDO añadir "
+                    "cualquier lenguaje de venta (precio, compra, envío, tienda, pedido, etc.)."),
     "waldorf": ("de un jardín de infancia Waldorf",
                 "escenas cotidianas y sugerencias prácticas que una familia pueda aplicar en casa",
                 "la invitación final a conocer la escuela y la sección de FAQ. No inventes URLs ni datos de la escuela."),
@@ -232,6 +237,56 @@ def _expand_if_thin_agency(client, site: dict, blog_data: dict, intentos: int = 
     if palabras < floor:
         print(f"[Writer] ⚠️ El artículo sigue flaco: {palabras} palabras (piso {floor})")
     return mejor
+
+
+def _limpia_lenguaje_de_venta(client, site: dict, blog_data: dict, intentos: int = 2) -> dict:
+    """Sitios con sales_gate: reescribe SOLO las frases con lenguaje de venta.
+
+    El redactor rompe las reglas de vez en cuando aunque el prompt las prohíba
+    («cómpralo», «envío», «proveedor» por «profesional de la salud»). En vez de
+    tirar un artículo entero de ~$0.30 por una palabra, se le devuelve la lista
+    exacta de hallazgos para que reescriba esas frases. Si tras `intentos`
+    sigue habiendo hallazgos, se devuelve tal cual: la compuerta de
+    wordpress.pasa_compuerta_ventas lo rechazará y no se publica.
+    """
+    from tools.revisor_ventas import revisa_articulo, quita_enlaces_a_hosts
+    NL = chr(10)
+    hosts = site.get("forbidden_hosts", [])
+    blog_data["content"], _ = quita_enlaces_a_hosts(blog_data.get("content", ""), hosts)
+    for intento in range(1, intentos + 1):
+        hallazgos = revisa_articulo(blog_data, hosts)
+        if not hallazgos:
+            return blog_data
+        print(f"[Writer] {len(hallazgos)} hallazgo(s) de venta; reescribiendo esas frases "
+              f"(intento {intento}/{intentos})...")
+        prompt = (
+            "Este artículo es para un sitio INFORMATIVO que no vende nada. Tiene frases con lenguaje "
+            "de venta o menciones prohibidas. Reescribe SOLO esas frases de forma neutral y científica "
+            "(o elimínalas si no aportan), sin tocar el resto, y sin usar NINGUNA de estas palabras: "
+            "precio, costo, comprar, vender, venta, adquirir, pedido, envío, pago, tienda, catálogo, "
+            "existencias, stock, oferta, descuento, promoción, cupón, cliente, proveedor (di 'profesional "
+            "de la salud'), distribuidor, factura, lote, COA, certificado de análisis, farmacia, dopaje, "
+            "WADA. Nunca menciones otra web ni tienda. Hallazgos:" + NL + "- "
+            + (NL + "- ").join(hallazgos[:40]) + NL + NL
+            + "Responde ÚNICAMENTE con el MISMO JSON (mismos campos) corregido." + NL + NL
+            + "JSON ACTUAL:" + NL
+            + json.dumps(blog_data, ensure_ascii=False)
+        )
+        try:
+            resp = client.messages.create(model="claude-sonnet-4-6", max_tokens=16000,
+                                          messages=[{"role": "user", "content": prompt}])
+            texto = "".join(b.text for b in resp.content if hasattr(b, "text"))
+            corregido = _parse_json(texto)
+            if corregido.get("content"):
+                corregido.setdefault("slug", blog_data.get("slug", ""))
+                corregido["content"], _ = quita_enlaces_a_hosts(corregido["content"], hosts)
+                blog_data = corregido
+        except Exception as e:
+            print(f"[Writer] La limpieza de lenguaje de venta falló ({e}).")
+    restantes = revisa_articulo(blog_data, hosts)
+    if restantes:
+        print(f"[Writer] ⚠️ Siguen {len(restantes)} hallazgo(s) de venta: no se publicará")
+    return blog_data
 
 
 def _recorta_enlaces_internos(html: str, dominio: str, tope: int, conservar=()) -> str:
@@ -304,6 +359,22 @@ AÑO ACTUAL: {year}. Si incluyes un año por frescura, usa {year}, nunca uno pas
 Escríbelo para una familia de Cholula o Puebla con hijos pequeños. Que el artículo aporte algo que \
 los posts ya publicados de la lista de enlaces no cubran, y enlaza los que se relacionen.
 Responde únicamente con el JSON solicitado."""
+    elif site.get("content_style") == "informativo":
+        from tools.wordpress import get_posts_list, get_titulos_sitio
+        enlaces = bloque_enlaces_waldorf(site.get("paginas_clave"), get_posts_list(site_key))
+        evitar = []
+        for otro in site.get("exclude_topics_from_sites", []):
+            evitar += get_titulos_sitio(otro)
+        system_prompt = get_informativo_system_prompt(
+            site["niche"], site["post_length"], year, enlaces_block=enlaces,
+            whatsapp=site.get("whatsapp", ""), whatsapp_en_cuerpo=site.get("whatsapp_en_cuerpo", False),
+            evitar=evitar)
+        user_message = f"""Escribe un artículo de divulgación científica completo y optimizado para SEO sobre: "{topic}"
+
+AÑO ACTUAL: {year}. Si incluyes un año por frescura, usa {year}, nunca uno pasado.
+Que explique cómo funciona y qué dice la evidencia, citando estudios reales. Recuerda: es un sitio
+informativo, sin una sola palabra de venta y sin mencionar ninguna tienda.
+Responde únicamente con el JSON solicitado."""
     else:
         fichas_block = fetch_product_map(site_key)
         system_prompt = get_system_prompt(site["niche"], site["post_length"], year,
@@ -336,8 +407,11 @@ Responde únicamente con el JSON solicitado."""
 
     if is_arcade:
         blog_data = _review_blog_arcade(client, site, blog_data, existing_guides, year)
-    elif site.get("content_style") in ("agency", "waldorf"):
+    elif site.get("content_style") in ("agency", "waldorf", "informativo"):
         blog_data = _expand_if_thin_agency(client, site, blog_data)
+
+    if site.get("sales_gate"):
+        blog_data = _limpia_lenguaje_de_venta(client, site, blog_data)
 
     tope = site.get("max_internal_links")
     if tope:

@@ -184,6 +184,88 @@ SITES = {
             "Nuestro equipo": "https://tlaollinwaldorfcholula.com/escuelas-alternativas-en-puebla-equipo/",
         },
     },
+    # Sitio HERMANO e INDEPENDIENTE de la tienda: informativo/científico, con
+    # funnel a WhatsApp (decisión del dueño, 19-oct-2026). Reglas duras:
+    # NUNCA nada de ventas, NUNCA enlaces ni menciones al .mx, nada de dopaje,
+    # nunca "farmacia", y contenido DISTINTO al del .mx (otras keywords, otro
+    # ángulo) para no duplicar. Todo artículo pasa tools/revisor_ventas.py en 0.
+    #
+    # Mientras el .com siga privado detrás del basic_auth de Caddy, el agente
+    # entra por la REST API con una cabecera secreta (PYSCOM_GATE_TOKEN) que
+    # Caddy acepta en /wp-json/* en lugar del basic_auth; el header
+    # Authorization queda libre para la Application Password de WordPress.
+    "pyscom": {
+        # Sin usuario/contraseña no se programa (ver schedule_sites): así este
+        # código se puede desplegar antes de que existan las credenciales.
+        "enabled": bool(os.getenv("PYSCOM_WP_USER") and os.getenv("PYSCOM_WP_APP_PASSWORD")),
+        "wp_url": os.getenv("PYSCOM_WP_URL", "https://peptidosysuplementos.com"),
+        "wp_user": os.getenv("PYSCOM_WP_USER"),
+        "wp_password": os.getenv("PYSCOM_WP_APP_PASSWORD"),
+        # Application Password en Basic, sin pasar por JWT (el token caduca a
+        # los 7 días y ya tumbó al .mx tres veces).
+        "wp_auth": "app_password",
+        "gate_header": ("X-PYS-Agente", os.getenv("PYSCOM_GATE_TOKEN")),
+        "content_style": "informativo",
+        "niche": "divulgación científica sobre péptidos, fisiología y metabolismo: mecanismos de "
+                 "acción, receptores, ensayos clínicos y cómo leer la evidencia",
+        "language": "es",
+        # Semillas de ÁNGULO científico, no de producto: la tienda (.mx) ya
+        # reclama el nombre comercial + precio/país (fichas) y el nombre
+        # científico solo (monografías). Aquí van conceptos, mecanismos,
+        # estudios y comparaciones de evidencia, en cola larga.
+        "keywords_seed": [
+            "qué es un péptido señalizador", "receptor GLP-1 cómo funciona", "agonista dual GIP GLP-1",
+            "triple agonista GLP-1 GIP glucagón", "ensayos clínicos de fase 1 2 y 3",
+            "cómo leer un estudio clínico", "vida media de un péptido", "eje GH IGF-1",
+            "secretagogos de hormona de crecimiento", "biogénesis mitocondrial", "NAD+ y envejecimiento",
+            "autofagia", "angiogénesis y reparación de tejidos", "péptidos de cobre y piel",
+            "sistema inmune y timo", "ansiedad y neuropéptidos", "glutatión y estrés oxidativo",
+            "liofilización de péptidos", "estabilidad de péptidos en solución",
+            "composición corporal y metabolismo", "sarcopenia", "resistencia a la insulina",
+        ],
+        "topic_ideas": True,
+        "topic_ideas_brief": (
+            "Propón 12 temas NUEVOS de divulgación científica que un lector curioso buscaría en "
+            "Google: un mecanismo, un concepto de fisiología, un ensayo clínico concreto, una "
+            "comparación de evidencia o una pregunta de 'cómo funciona'. Cada tema es una consulta "
+            "informativa de cola larga. PROHIBIDO cualquier tema de compra, precio, dónde conseguir, "
+            "marcas, proveedores, envío o país ('en México'), y PROHIBIDO un tema que sea solo el "
+            "nombre de una molécula (eso ya lo cubre otro sitio). Nada sobre dopaje."
+        ),
+        # Lo que ya publica la tienda NO se repite aquí (ni parafraseado): se
+        # leen sus títulos de posts, monografías y páginas antes de elegir tema.
+        "exclude_topics_from_sites": ["peptidosysuplementos"],
+        # Nunca un enlace ni una mención a la tienda. Los enlaces a estos hosts
+        # se desenvuelven (queda el texto) y la mención en texto rechaza.
+        "forbidden_hosts": ["peptidosysuplementos.mx"],
+        "sales_gate": True,
+        "topic_blocklist": ["dog chow", "purina", "croqueta", "perro", "perros",
+                            "gato", "gatos", "mascota", "mascotas"],
+        # El contenedor corre en UTC: 15:00 UTC = 9:00 en el centro de México.
+        # Días distintos a los de la tienda (lunes y sábado).
+        "publish_days": ["wednesday", "friday"],
+        "publish_time": "15:00",
+        # Mientras el sitio sea privado + noindex, publicar ahí ES el ambiente de
+        # prueba. Para revisar cada artículo antes, PYSCOM_PUBLISH_STATUS=draft.
+        "publish_status": os.getenv("PYSCOM_PUBLISH_STATUS", "publish"),
+        "post_length": 1500,
+        "unsplash_fallback": "science laboratory research microscope",
+        "image_vision_check": True,
+        "image_criterio": ("blog de divulgación científica: laboratorio, ciencia, biología o "
+                           "personas sanas; sin marcas, precios, empaques comerciales ni jeringas"),
+        # El mu-plugin 01-pys-avisos-whatsapp.php del .com YA pinta el aviso al
+        # inicio y el bloque de WhatsApp al final de cada post: el artículo no
+        # los repite. Solo cierra invitando a pedir más información por ahí.
+        "whatsapp": "5215534449236",
+        "whatsapp_en_cuerpo": False,
+        "max_internal_links": 5,
+        "paginas_clave": {
+            # Confirmar en el .com antes de activar: son las ÚNICAS URLs fijas
+            # que el redactor puede enlazar además de los posts publicados.
+            "Monografías científicas": "https://peptidosysuplementos.com/monografia/",
+        },
+        "default_categories": ["Blog"],
+    },
 }
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")

@@ -109,10 +109,21 @@ def _fetch_wp_headers(site_key: str) -> tuple[str, dict]:
     ).decode()
     headers = {"Authorization": f"Basic {credentials}", "Content-Type": "application/json"}
 
+    # Cabecera secreta para pasar el basic_auth de Caddy en un sitio privado
+    # (pyscom). Va en una cabecera PROPIA porque Authorization lo ocupa WordPress.
+    gate_nombre, gate_valor = site.get("gate_header") or (None, None)
+    gate = {gate_nombre: gate_valor} if gate_nombre and gate_valor else {}
+
+    # wp_auth="app_password": directo a Basic con la Application Password, sin
+    # pedir JWT (el token caduca a los 7 días).
+    if site.get("wp_auth") == "app_password":
+        return wp_url, {**headers, **gate}
+
     try:
         token_response = requests.post(
             f"{wp_url}/wp-json/jwt-auth/v1/token",
             json={"username": site["wp_user"], "password": site["wp_password"]},
+            headers=gate or None,
             timeout=15,
         )
         if token_response.status_code == 200:
@@ -125,7 +136,7 @@ def _fetch_wp_headers(site_key: str) -> tuple[str, dict]:
     except Exception as e:
         print(f"[WP] {site_key}: JWT no disponible ({e}); uso Basic Auth")
 
-    return wp_url, headers
+    return wp_url, {**headers, **gate}
 
 
 def get_wp_headers(site_key: str, force_refresh: bool = False) -> tuple[str, dict]:
@@ -177,6 +188,69 @@ def wp_request(method: str, site_key: str, path: str, **kwargs) -> "requests.Res
         wp_url, headers = get_wp_headers(site_key, force_refresh=True)
         r = requests.request(method, f"{wp_url}{path}", headers=headers, **kwargs)
     return r
+
+
+def pasa_compuerta_ventas(site_key: str, blog_data: dict) -> bool:
+    """Sitios con sales_gate (pyscom): 0 hallazgos de venta o no se escribe.
+
+    Antes de revisar desenvuelve los enlaces a hosts prohibidos (la tienda):
+    el enlace se quita, el texto queda. Una MENCIÓN en el texto no se repara
+    sola y rechaza. Se llama en publish_post y update_post: son los dos únicos
+    caminos por los que el agente escribe en el sitio.
+    """
+    site = SITES[site_key]
+    if not site.get("sales_gate"):
+        return True
+    from tools.revisor_ventas import revisa_articulo, quita_enlaces_a_hosts
+    hosts = site.get("forbidden_hosts", [])
+    contenido, quitados = quita_enlaces_a_hosts(blog_data.get("content", ""), hosts)
+    if quitados:
+        blog_data["content"] = contenido
+        print(f"[Ventas] {quitados} enlace(s) a la tienda desenvuelto(s)")
+    hallazgos = revisa_articulo(blog_data, hosts)
+    if hallazgos:
+        print(f"[Ventas] ⛔ El artículo NO se escribe en {site_key}: "
+              f"{len(hallazgos)} hallazgo(s) de lenguaje de venta")
+        for h in hallazgos[:20]:
+            print(f"[Ventas]      · {h}")
+        return False
+    print("[Ventas] ✅ 0 hallazgos de lenguaje de venta")
+    return True
+
+
+def get_titulos_sitio(site_key: str) -> list[str]:
+    """Títulos de TODO lo que tiene un sitio WordPress: posts (publicados,
+    borradores y programados, con auth), monografías y páginas (públicos).
+
+    Lo usa un sitio hermano para no repetir ni parafrasear lo que ya cubre el
+    otro (pyscom no debe duplicar al .mx). Fallos = lista parcial, nunca error.
+    """
+    titulos: list[str] = []
+    wp_url = SITES[site_key].get("wp_url")
+    if not wp_url:
+        return titulos
+    try:
+        r = wp_request("get", site_key, "/wp-json/wp/v2/posts",
+                       params={"per_page": 100, "status": "publish,draft,future",
+                               "_fields": "title", "context": "edit"}, timeout=20)
+        if r.status_code != 200:  # sin permiso de ver borradores: solo publicados
+            r = requests.get(f"{wp_url}/wp-json/wp/v2/posts",
+                             params={"per_page": 100, "_fields": "title"}, timeout=20)
+        for p in r.json() if isinstance(r.json(), list) else []:
+            t = p.get("title") or {}
+            titulos.append(t.get("raw") or t.get("rendered") or "")
+    except Exception as e:
+        print(f"[WP] {site_key}: no pude leer sus posts ({e})")
+    for tipo in ("monografia", "pages"):
+        try:
+            r = requests.get(f"{wp_url}/wp-json/wp/v2/{tipo}",
+                             params={"per_page": 100, "_fields": "title"}, timeout=20)
+            if r.status_code == 200:
+                titulos += [(p.get("title") or {}).get("rendered", "") for p in r.json()]
+        except Exception as e:
+            print(f"[WP] {site_key}: no pude leer {tipo} ({e})")
+    import html as _html
+    return [_html.unescape(t) for t in titulos if t]
 
 
 def set_rank_math_meta(site_key: str, post_id: int, meta: dict) -> bool:
@@ -237,6 +311,8 @@ def publish_post(site_key: str, blog_data: dict, featured_media_id: int = None,
         print(f"[SEO-guarda] {nota}")
     if not publicable:
         print("[WP] El articulo NO se publica: no paso las guardas de contenido")
+        return None
+    if not pasa_compuerta_ventas(site_key, blog_data):
         return None
 
     content = blog_data.get("content", "")
@@ -432,6 +508,9 @@ def update_post(site_key: str, post_id: int, blog_data: dict, featured_media_id:
     Actualiza un post existente en WordPress con los campos proporcionados.
     Retorna el post actualizado o None si falla.
     """
+    if not pasa_compuerta_ventas(site_key, blog_data):
+        return None
+
     payload = {
         "title": blog_data["title"],
         "content": blog_data.get("content", ""),
