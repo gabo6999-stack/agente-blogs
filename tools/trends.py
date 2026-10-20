@@ -216,20 +216,33 @@ def es_tema_repetido(topic: str, usados, umbral: float = 0.6) -> bool:
     return False
 
 
-def es_tema_bloqueado(site_key: str, topic: str) -> bool:
-    """¿El tema está fuera del nicho (topic_blocklist, por palabra completa) o,
-    en un sitio con sales_gate, trae intención de compra o de país ("precio",
-    "comprar", "dónde", "México")?"""
+def es_tema_bloqueado(site_key: str, topic: str) -> str:
+    """Motivo por el que el tema no se escribe ("" = se puede escribir).
+
+    - fuera del nicho (topic_blocklist, por palabra completa);
+    - en un sitio con sales_gate, intención de compra o de país ("precio",
+      "comprar", "dónde", "México");
+    - con keyword_owner_site, la keyword ya tiene dueña en la tienda: una ficha
+      o una monografía (ver tools/compuerta_dueno.py).
+    Los prefijos del motivo son los que tools/logger.py trata como descarte
+    permanente.
+    """
     site = SITES[site_key]
     texto = " " + re.sub(r"[^\w]+", " ", (topic or "").lower()) + " "
     for vetado in site.get("topic_blocklist", []):
         if f" {vetado.lower()} " in texto:
-            return True
+            return f"tema fuera de nicho («{vetado}»)"
     if site.get("sales_gate"):
         from tools.revisor_ventas import hallazgos_venta
         if hallazgos_venta(topic) or re.search(r"\bd[oó]nde\b|\bm[eé]xico\b", topic or "", re.I):
-            return True
-    return False
+            return "tema de venta o de país para un sitio informativo"
+    dueno = site.get("keyword_owner_site")
+    if dueno and SITES.get(dueno, {}).get("wp_url"):
+        from tools.compuerta_dueno import duenos, dueno_de_keyword
+        d = dueno_de_keyword(topic, duenos(SITES[dueno]["wp_url"]))
+        if d:
+            return "keyword con dueño en la tienda: " + ", ".join(x["url"] for x in d[:3])
+    return ""
 
 
 def pick_topic(site_key: str, used_topics: list[str] = [], country: str = None) -> str:
@@ -251,8 +264,9 @@ def pick_topic(site_key: str, used_topics: list[str] = [], country: str = None) 
         topics = get_trending_topics(site_key)
 
     for topic in topics:
-        if es_tema_bloqueado(site_key, topic):
-            print(f"[Trends] Tema descartado (fuera de nicho o de venta): {topic}")
+        motivo = es_tema_bloqueado(site_key, topic)
+        if motivo:
+            print(f"[Trends] Tema descartado ({motivo}): {topic}")
             continue
         if not es_tema_repetido(topic, used_topics):
             return topic

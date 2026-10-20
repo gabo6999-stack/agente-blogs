@@ -442,9 +442,15 @@ informativo, sin una sola palabra de venta y sin mencionar ninguna tienda.
 Responde únicamente con el JSON solicitado."""
     else:
         fichas_block = fetch_product_map(site_key)
+        con_dueno = ""
+        dueno = site.get("keyword_owner_site")
+        if dueno and SITES.get(dueno, {}).get("wp_url"):
+            from tools.compuerta_dueno import duenos, keywords_con_dueno_para_prompt
+            con_dueno = keywords_con_dueno_para_prompt(duenos(SITES[dueno]["wp_url"]))
         system_prompt = get_system_prompt(site["niche"], site["post_length"], year,
                                           fichas_block=fichas_block,
-                                          sin_pautas=bool(site.get("dose_gate")))
+                                          sin_pautas=bool(site.get("dose_gate")),
+                                          keywords_con_dueno=con_dueno)
         user_message = f"""Escribe un artículo de blog completo y optimizado para SEO sobre: "{topic}"
 
 AÑO ACTUAL: {year}. Si incluyes un año por frescura/SEO (título o texto), usa {year}, nunca uno pasado. Solo conserva años reales al citar estudios, ensayos o eventos concretos.

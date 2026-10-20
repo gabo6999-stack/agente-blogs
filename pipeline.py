@@ -29,6 +29,7 @@ from tools.wordpress import (publish_post, get_wp_headers, get_post, get_tag_nam
 from tools.revisor_ventas import revisa_articulo
 from tools.compuerta_dosis import revisa_dosis
 from tools.compuerta_citas import revisa_citas, hallazgos as hallazgos_citas
+from tools.compuerta_dueno import duenos, dueno_de_keyword
 from tools.arcade import publish_post as arcade_publish_post
 from tools.seo_guardas import audita_onpage
 from tools.logger import log_post, get_used_topics, get_history, get_last_post
@@ -263,6 +264,16 @@ def motivo_de_rechazo(site_key: str, blog_data: dict) -> str:
     tools/compuerta_citas.py (esta última consulta NCBI, con caché).
     """
     site = SITES[site_key]
+    dueno = site.get("keyword_owner_site")
+    kw = blog_data.get("rank_math_focus_keyword", "")
+    if dueno and kw and SITES.get(dueno, {}).get("wp_url"):
+        d = dueno_de_keyword(kw, duenos(SITES[dueno]["wp_url"]))
+        if d:
+            # Prefijo distinto al del tema ("keyword con dueño"): el TEMA puede
+            # ser bueno y el redactor haber elegido mal la keyword, así que no
+            # se descarta para siempre.
+            return (f"focus keyword con dueño en la tienda («{kw}»): "
+                    + ", ".join(f"{x['tipo']} {x['url']}" for x in d[:3]))
     if site.get("sales_gate"):
         h = revisa_articulo(blog_data, site.get("forbidden_hosts", []))
         if h:
@@ -327,8 +338,8 @@ def run_pipeline(site_key: str, topic: str = None, country: str = None):
 
         # 1a. Tema fuera de nicho o, en un sitio informativo, con intención de
         # compra. Aplica también a los temas encolados o pedidos a mano.
-        if es_tema_bloqueado(site_key, topic):
-            msg = "tema de venta o fuera de nicho para este sitio"
+        msg = es_tema_bloqueado(site_key, topic)
+        if msg:
             print(f"[Pipeline] ⛔ No se escribe el artículo: {msg} ({topic})")
             log_post(site_key, topic, None, success=False, error=msg)
             agent_status["last_error"] = msg

@@ -46,7 +46,8 @@ def log_post(site_key: str, topic: str, post: dict, success: bool, error: str = 
 # no se cuentan como "usados", pick_topic vuelve a elegir el mismo tema en cada
 # corrida y la corrida se pierde: "ghk cu mexico" se descartó el 5-oct y el
 # 19-oct (y se habría seguido eligiendo) porque el ruteo lo manda a la ficha.
-_DESCARTE_PERMANENTE = ("tema transaccional", "tema de venta")
+_DESCARTE_PERMANENTE = ("tema transaccional", "tema de venta", "tema fuera de nicho",
+                        "keyword con dueño")
 
 
 def get_used_topics(site_key: str, last_n: int = 20) -> list[str]:

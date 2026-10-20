@@ -45,6 +45,10 @@ SITES = {
         # tools/compuerta_citas.py). Mínimo de fuentes válidas por artículo.
         "citation_gate": True,
         "min_fuentes": 2,
+        # La keyword de un post no puede ser la de una ficha o monografía de la
+        # tienda (ver tools/compuerta_dueno.py; el ruteo del agente SEO no
+        # conoce las monografías y deja pasar «X para qué sirve»).
+        "keyword_owner_site": "peptidosysuplementos",
     },
     # Antes se llamaba "grupoptm" y apuntaba a grupoptm.com. PTM se rebrandeó a
     # Telenzia, así que la clave y el sitio se movieron a telenzia.com. Las
@@ -251,6 +255,7 @@ SITES = {
         "dose_gate": "citado",
         "citation_gate": True,
         "min_fuentes": 2,
+        "keyword_owner_site": "peptidosysuplementos",
         "topic_blocklist": ["dog chow", "purina", "croqueta", "perro", "perros",
                             "gato", "gatos", "mascota", "mascotas"],
         # El contenedor corre en UTC: 15:00 UTC = 9:00 en el centro de México.
